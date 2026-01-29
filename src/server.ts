@@ -72,6 +72,27 @@ const searchArticles = (articles: Article[], query: string): Article[] => {
 // ============================================
 
 /**
+ * GET /
+ * Root endpoint - API Information
+ */
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    name: 'Global News API',
+    description: 'Headless news aggregation API',
+    status: 'online',
+    version: '1.0.0',
+    documentation: '/api/health',
+    endpoints: {
+      health: '/api/health',
+      sources: '/api/sources',
+      news: '/api/news',
+      search: '/api/news/search',
+      stats: '/api/stats'
+    }
+  });
+});
+
+/**
  * GET /api/health
  * Health check endpoint
  */
