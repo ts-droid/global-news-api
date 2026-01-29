@@ -10,10 +10,26 @@ const parser = new Parser({
 });
 
 /**
- * Generate a unique hash ID for an article based on title and link
+ * Normalize article link by removing common tracking parameters
+ */
+export const normalizeUrl = (url: string): string => {
+  try {
+    const urlObj = new URL(url);
+    // Common tracking parameters to remove
+    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'rss', 'ref'];
+    trackingParams.forEach(param => urlObj.searchParams.delete(param));
+    return urlObj.toString();
+  } catch (e) {
+    return url;
+  }
+};
+
+/**
+ * Generate a unique hash ID for an article based on title and normalized link
  */
 export const generateArticleId = (title: string, link: string): string => {
-  const content = `${title}${link}`;
+  const normalizedLink = normalizeUrl(link);
+  const content = `${title}${normalizedLink}`;
   return crypto.createHash('md5').update(content).digest('hex');
 };
 
@@ -47,21 +63,48 @@ const extractImageUrl = (item: any): string | null => {
 };
 
 /**
+ * Safely parse date from various RSS formats
+ */
+const parseSafeDate = (dateString: any): string => {
+  if (!dateString) return new Date().toISOString();
+  
+  const date = new Date(dateString);
+  // Check if date is valid
+  if (!isNaN(date.getTime())) {
+    return date.toISOString();
+  }
+  
+  // Try to clean up common issues (e.g., extra whitespace or weird characters)
+  try {
+    const cleaned = String(dateString).trim();
+    const fallbackDate = new Date(cleaned);
+    if (!isNaN(fallbackDate.getTime())) {
+      return fallbackDate.toISOString();
+    }
+  } catch (e) {}
+  
+  return new Date().toISOString();
+};
+
+/**
  * Normalize article data from RSS feed
  */
 const normalizeArticle = (item: any, source: NewsSource): Article => {
+  const link = item.link || '';
+  const normalizedLink = normalizeUrl(link);
+  
   return {
-    id: generateArticleId(item.title || '', item.link || ''),
+    id: generateArticleId(item.title || '', link),
     source: source.name,
     sourceCode: source.code,
     category: source.category,
     region: source.region,
     country: source.country,
     language: source.language,
-    title: item.title || 'No title',
-    description: item.contentSnippet || item.description || item.content || '',
-    link: item.link || '',
-    pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
+    title: (item.title || 'No title').trim(),
+    description: (item.contentSnippet || item.description || item.content || '').trim(),
+    link: normalizedLink,
+    pubDate: parseSafeDate(item.pubDate || item.isoDate),
     imageUrl: extractImageUrl(item),
     author: item.creator || item.author || source.name
   };
@@ -116,6 +159,8 @@ export const fetchFromSources = async (sources: NewsSource[]): Promise<MultiFetc
     totalArticles: 0
   };
   
+  const failedSources: string[] = [];
+  
   results.forEach((result, index) => {
     if (result.status === 'fulfilled' && result.value.success) {
       stats.successful++;
@@ -123,9 +168,14 @@ export const fetchFromSources = async (sources: NewsSource[]): Promise<MultiFetc
       allArticles.push(...result.value.articles);
     } else {
       stats.failed++;
+      failedSources.push(sources[index].name);
       console.error(`Failed to fetch from ${sources[index].name}`);
     }
   });
+
+  if (failedSources.length > 0) {
+    console.warn(`Summary: ${failedSources.length} sources failed to fetch: ${failedSources.join(', ')}`);
+  }
   
   return {
     articles: allArticles,

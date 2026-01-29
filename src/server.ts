@@ -203,6 +203,55 @@ app.get('/api/news', async (req: Request, res: Response) => {
 });
 
 /**
+ * Background Refresh Logic (Stale-While-Revalidate)
+ * Automatically refreshes the main caches every 15 minutes
+ */
+const initializeBackgroundRefresh = () => {
+  const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
+  
+  const refresh = async () => {
+    console.log('--- Background Refresh Started ---');
+    
+    // 1. Refresh "All News" (Main landing page)
+    try {
+      const sources = getAllSources();
+      const result = await fetchFromSources(sources);
+      const articles = sortByDate(deduplicateArticles(result.articles));
+      cache.set('news_all_all', articles);
+      console.log(`✓ Background Refresh: news_all_all updated (${articles.length} articles)`);
+    } catch (e) {
+      console.error('✗ Background Refresh Error (all):', e);
+    }
+    
+    // 2. Refresh key categories
+    const categories = ['swedish', 'international', 'tech'];
+    for (const category of categories) {
+      try {
+        const sources = getSourcesByCategory(category);
+        const result = await fetchFromSources(sources);
+        const articles = sortByDate(deduplicateArticles(result.articles));
+        cache.set(`news_${category}_all`, articles);
+        cache.set(`category_${category}`, articles);
+        console.log(`✓ Background Refresh: category ${category} updated`);
+      } catch (e) {
+        console.error(`✗ Background Refresh Error (${category}):`, e);
+      }
+    }
+    
+    console.log('--- Background Refresh Completed ---');
+  };
+  
+  // Run once on startup after a short delay
+  setTimeout(refresh, 5000);
+  
+  // Set interval
+  setInterval(refresh, REFRESH_INTERVAL);
+};
+
+// Start background refresh
+initializeBackgroundRefresh();
+
+/**
  * GET /api/news/source/:sourceCode
  * Get news from a specific source
  */
