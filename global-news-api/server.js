@@ -19,9 +19,10 @@ const {
   generate2FA, 
   verify2FA 
 } = require('./adminAuth');
+const jwt = require('jsonwebtoken');
 const { db } = require('./db');
-const { adminUsers, rssSources, aiPrompts } = require('./db/schema');
-const { eq } = require('drizzle-orm');
+const { adminUsers, rssSources, aiPrompts, articles } = require('./db/schema');
+const { eq, desc, ilike, or, and, sql } = require('drizzle-orm');
 
 const swedishMockArticles = [
   {
@@ -131,44 +132,166 @@ app.get('/api/health', async (req, res) => {
 
 /**
  * GET /api/news
- * Get latest news (Defaulting to translated Swedish if available)
+ * Get latest news from database (with Swedish translations)
  */
 app.get('/api/news', async (req, res) => {
   try {
-    const { limit, offset, category, region, lang = 'sv' } = req.query;
-    
-    // Attempt to get the translated feed first
-    const cacheKey = lang === 'sv' ? 'news_all_all_sv' : `news_${category || 'all'}_${region || 'all'}`;
-    let articles = cache.get(cacheKey);
-    
-    if (!articles) {
-      console.log('Cache miss - serving standard feed from DB sources');
-      let sourcesQuery = db.select().from(rssSources).where(eq(rssSources.isActive, true));
-      
-      // Note: Category/Region filtering in the fetch logic would need update if moved fully to DB
-      // For now we fetch all active and filter in JS or rely on DB
-      const allActiveSources = await sourcesQuery;
-      let filteredSources = allActiveSources;
-      
-      if (category) filteredSources = allActiveSources.filter(s => s.category === category);
-      if (region) filteredSources = allActiveSources.filter(s => s.region === region);
-      
-      const result = await fetchFromSources(filteredSources);
-      articles = deduplicateArticles(result.articles);
-      articles = sortByDate(articles);
-      
-      // Fallback to mock data if no articles fetched
-      if (articles.length === 0) {
-        console.log('No articles fetched - using mock data');
-        articles = swedishMockArticles;
-      } else {
-        cache.set(cacheKey, articles);
-      }
+    const { limit = 20, offset = 0, category, region, lang = 'sv' } = req.query;
+
+    const safeLimit = Math.min(parseInt(limit) || 20, 100);
+    const safeOffset = parseInt(offset) || 0;
+
+    // Try cache first
+    const cacheKey = `news_${category || 'all'}_${region || 'all'}_sv`;
+    let cachedArticles = cache.get(cacheKey);
+
+    if (cachedArticles && !category && !region) {
+      // Use cached data for main feed
+      const paginatedData = paginate(cachedArticles, safeLimit, safeOffset);
+      return res.json({ status: 'success', data: paginatedData });
     }
-    
-    const paginatedData = paginate(articles, limit, offset);
-    res.json({ status: 'success', data: paginatedData });
+
+    // Build query with filters
+    let conditions = [];
+    if (category) {
+      conditions.push(eq(articles.category, category));
+    }
+    if (region) {
+      conditions.push(eq(articles.region, region));
+    }
+
+    // Fetch from database
+    let query = db.select().from(articles);
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+
+    const dbArticles = await query
+      .orderBy(desc(articles.createdAt))
+      .limit(safeLimit)
+      .offset(safeOffset);
+
+    // Get total count for pagination
+    const countResult = await db.select({ count: sql`count(*)` }).from(articles);
+    const total = parseInt(countResult[0]?.count || 0);
+
+    // Transform to API format
+    const apiArticles = dbArticles.map(a => ({
+      id: a.id,
+      title: a.title,
+      titleSv: a.titleSv,
+      summarySv: a.summarySv,
+      description: a.description,
+      link: a.link,
+      imageUrl: a.imageUrl,
+      pubDate: a.pubDate?.toISOString(),
+      createdAt: a.createdAt?.toISOString(),
+      source: a.sourceName,
+      sourceCode: a.sourceCode,
+      author: a.author,
+      category: a.category,
+      region: a.region,
+      readingTime: a.readingTime ? `${a.readingTime} min` : null,
+      isBreaking: a.isBreaking,
+      isTranslated: a.isTranslated
+    }));
+
+    // Fallback to mock data if database is empty
+    if (apiArticles.length === 0 && safeOffset === 0) {
+      console.log('No articles in database - using mock data');
+      const paginatedData = paginate(swedishMockArticles, safeLimit, safeOffset);
+      return res.json({ status: 'success', data: paginatedData });
+    }
+
+    res.json({
+      status: 'success',
+      data: {
+        articles: apiArticles,
+        pagination: {
+          total,
+          limit: safeLimit,
+          offset: safeOffset,
+          hasMore: safeOffset + safeLimit < total
+        }
+      }
+    });
   } catch (error) {
+    console.error('Error fetching news:', error);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/news/search
+ * Search articles by query
+ */
+app.get('/api/news/search', async (req, res) => {
+  try {
+    const { q, limit = 20, offset = 0, lang = 'sv' } = req.query;
+
+    if (!q || q.trim().length < 2) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Search query must be at least 2 characters'
+      });
+    }
+
+    const safeLimit = Math.min(parseInt(limit) || 20, 100);
+    const safeOffset = parseInt(offset) || 0;
+    const searchTerm = `%${q.trim()}%`;
+
+    // Search in both Swedish and English titles/summaries
+    const searchResults = await db
+      .select()
+      .from(articles)
+      .where(
+        or(
+          ilike(articles.title, searchTerm),
+          ilike(articles.titleSv, searchTerm),
+          ilike(articles.description, searchTerm),
+          ilike(articles.summarySv, searchTerm)
+        )
+      )
+      .orderBy(desc(articles.createdAt))
+      .limit(safeLimit)
+      .offset(safeOffset);
+
+    // Transform to API format
+    const apiArticles = searchResults.map(a => ({
+      id: a.id,
+      title: a.title,
+      titleSv: a.titleSv,
+      summarySv: a.summarySv,
+      description: a.description,
+      link: a.link,
+      imageUrl: a.imageUrl,
+      pubDate: a.pubDate?.toISOString(),
+      createdAt: a.createdAt?.toISOString(),
+      source: a.sourceName,
+      sourceCode: a.sourceCode,
+      author: a.author,
+      category: a.category,
+      region: a.region,
+      readingTime: a.readingTime ? `${a.readingTime} min` : null,
+      isBreaking: a.isBreaking,
+      isTranslated: a.isTranslated
+    }));
+
+    res.json({
+      status: 'success',
+      data: {
+        articles: apiArticles,
+        pagination: {
+          total: apiArticles.length,
+          limit: safeLimit,
+          offset: safeOffset,
+          hasMore: apiArticles.length === safeLimit
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Search error:', error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 });

@@ -1,5 +1,40 @@
-const { pgTable, varchar, text, timestamp, boolean, uuid } = require("drizzle-orm/pg-core");
+const { pgTable, varchar, text, timestamp, boolean, uuid, integer } = require("drizzle-orm/pg-core");
 const { sql } = require("drizzle-orm");
+
+// Articles - persistently stored translated news articles
+const articles = pgTable("articles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  articleHash: varchar("article_hash", { length: 64 }).unique().notNull(), // SHA256 of link for deduplication
+
+  // Original content
+  title: text("title").notNull(),
+  description: text("description"),
+  content: text("content"),
+  link: text("link").notNull(),
+  imageUrl: text("image_url"),
+  pubDate: timestamp("pub_date"),
+  author: varchar("author", { length: 255 }),
+
+  // Source info
+  sourceCode: varchar("source_code", { length: 50 }).notNull(),
+  sourceName: varchar("source_name", { length: 200 }).notNull(),
+  category: varchar("category", { length: 50 }),
+  region: varchar("region", { length: 50 }),
+  language: varchar("language", { length: 10 }).default("en"),
+
+  // Swedish translations (AI-generated)
+  titleSv: text("title_sv"),
+  summarySv: text("summary_sv"),
+  isTranslated: boolean("is_translated").default(false).notNull(),
+
+  // Metadata
+  isBreaking: boolean("is_breaking").default(false).notNull(),
+  readingTime: integer("reading_time").default(3),
+
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 // Admin users - separate authentication system for dashboard access
 const adminUsers = pgTable("admin_users", {
@@ -43,6 +78,7 @@ const aiPrompts = pgTable("ai_prompts", {
 });
 
 module.exports = {
+  articles,
   adminUsers,
   rssSources,
   aiPrompts,
