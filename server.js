@@ -267,13 +267,24 @@ app.get('/api/stats', async (req, res) => {
       categories[source.category] = (categories[source.category] || 0) + 1;
     });
     
+    // Get recent articles
+    const recentArticles = await db.select().from(articlesTable).orderBy(articlesTable.pubDate, "desc").limit(5);
+
+    // Map source names
+    const sourceMap = new Map(sources.map(s => [s.code, s.name]));
+    
     res.json({
       status: 'success',
       data: {
         totalSources: sources.length,
         byRegion: regions,
         byCategory: categories,
-        cacheStats: cache.getStats()
+        cacheStats: cache.getStats(),
+        recentArticles: recentArticles.map(a => ({
+          title: a.titleSv || a.title,
+          source: sourceMap.get(a.sourceCode) || a.sourceCode,
+          time: a.pubDate
+        }))
       }
     });
   } catch (error) {

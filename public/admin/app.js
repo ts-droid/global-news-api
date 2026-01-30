@@ -121,6 +121,32 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('totalSourcesStat').textContent = data.data.totalSources;
             document.getElementById('cacheSizeStat').textContent = data.data.cacheStats.size;
             document.getElementById('lastRefreshStat').textContent = 'Just nu';
+
+            // Render Recent Activity
+            const recentLog = document.getElementById('recentActivityLog');
+            if (data.data.recentArticles && data.data.recentArticles.length > 0) {
+                recentLog.innerHTML = data.data.recentArticles.map(a => {
+                    const time = new Date(a.time).toLocaleTimeString('sv-SE', {hour: '2-digit', minute:'2-digit'});
+                    // Basic time ago logic
+                    const date = new Date(a.time);
+                    const now = new Date();
+                    const diffMs = now - date;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    let timeDisplay = time;
+                    if (diffMins < 60) timeDisplay += ` (${diffMins} min sedan)`;
+                    
+                    return `
+                    <div class="activity-item">
+                        <div class="activity-time">${timeDisplay}</div>
+                        <div class="activity-content">
+                            <span class="activity-source">${a.source}</span>
+                            <span class="activity-title">${a.title}</span>
+                        </div>
+                    </div>
+                `}).join('');
+            } else {
+                recentLog.innerHTML = '<p class="empty-msg">Inga händelser loggade än.</p>';
+            }
         } catch (err) {
             console.error('Failed to fetch stats:', err);
         }

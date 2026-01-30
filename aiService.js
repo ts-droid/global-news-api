@@ -89,7 +89,7 @@ async function translateAndSummarize(title, content, category) {
   }
 
   try {
-    const systemPrompt = getCategoryPrompt(category);
+    const systemPrompt = await getCategoryPrompt(category);
 
     const response = await openai.chat.completions.create({
       model: "deepseek/deepseek-chat",
