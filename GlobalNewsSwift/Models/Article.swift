@@ -24,8 +24,20 @@ struct Article: Codable, Identifiable {
     }
     
     var formattedDate: String {
-        // Basic ISO8601 parsing logic or simple string manipulation
-        return pubDate.prefix(10).description // Simplification for demo
+        // Parse ISO string (UTC) to Date
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        let date = isoFormatter.date(from: pubDate) ?? ISO8601DateFormatter().date(from: pubDate) ?? Date()
+        
+        // Format to User's Local Timezone
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.locale = Locale.current
+        formatter.timeZone = TimeZone.current
+        
+        return formatter.string(from: date)
     }
 }
 

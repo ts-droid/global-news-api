@@ -161,14 +161,14 @@ app.get('/api/news', async (req, res) => {
 
         articles = dbArticles.map(a => ({
             id: a.articleHash, // Use hash as ID to match old format
-            title: a.title,
+            title: a.title || "No Title",
             titleSv: a.titleSv,
             summarySv: a.summarySv,
             description: a.description,
-            link: a.link,
-            pubDate: a.pubDate.toISOString(),
-            source: sourceMap.get(a.sourceCode) || a.sourceCode,
-            category: a.category,
+            link: a.link || "#",
+            pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
+            source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
+            category: a.category || "general",
             // Parse "4 min" -> 4
             readingTime: parseInt(a.readingTime) || 2,
             imageUrl: a.imageUrl,
