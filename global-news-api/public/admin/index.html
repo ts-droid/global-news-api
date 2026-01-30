@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Global News Admin | Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      src="https://kit.fontawesome.com/a076d05399.js"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body class="dark-mode">
+    <div id="app">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="logo">
+          <i class="fas fa-globe-americas"></i>
+          <span>Global News Admin</span>
+        </div>
+        <nav>
+          <ul>
+            <li class="active" data-view="dashboard">
+              <i class="fas fa-tachometer-alt"></i> Dashboard
+            </li>
+            <li data-view="sources"><i class="fas fa-rss"></i> Nyhetskällor</li>
+            <li data-view="prompts">
+              <i class="fas fa-magic"></i> AI Prompter
+            </li>
+            <li data-view="stats">
+              <i class="fas fa-chart-line"></i> Statistik
+            </li>
+          </ul>
+        </nav>
+        <div class="user-profile">
+          <div class="avatar" id="userAvatar">T</div>
+          <div class="info">
+            <p class="name" id="userName">Thomas</p>
+            <p class="role">Super Admin</p>
+          </div>
+          <button id="logoutBtn" title="Logga ut">
+            <i class="fas fa-sign-out-alt"></i>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="content">
+        <header class="top-bar">
+          <h1 id="viewTitle">Dashboard</h1>
+          <div class="actions">
+            <button class="btn btn-primary" id="refreshCacheBtn">
+              <i class="fas fa-sync-alt"></i> Uppdatera Cache
+            </button>
+          </div>
+        </header>
+
+        <div id="viewContainer" class="view-container">
+          <!-- Dashboard Home View -->
+          <section id="dashboardView" class="view">
+            <div class="stats-grid">
+              <div class="stat-card">
+                <i class="fas fa-rss-square"></i>
+                <div class="data">
+                  <h3 id="totalSourcesStat">--</h3>
+                  <p>Aktiva Källor</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-newspaper"></i>
+                <div class="data">
+                  <h3 id="cacheSizeStat">--</h3>
+                  <p>Artiklar i Cache</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-clock"></i>
+                <div class="data">
+                  <h3 id="lastRefreshStat">--</h3>
+                  <p>Senaste Refresh</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="panel glass">
+                <h2>Systemstatus</h2>
+                <div id="systemStatusList" class="status-list">
+                  <!-- Status items dynamic -->
+                </div>
+              </div>
+              <div class="panel glass">
+                <h2>Senaste Händelser</h2>
+                <div id="recentActivityLog" class="activity-log">
+                  <!-- Activity items dynamic -->
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Additional views will be handled via JS -->
+        </div>
+      </main>
+    </div>
+
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="overlay hidden">
+      <div class="auth-card glass">
+        <h2>Logga in</h2>
+        <form id="loginForm">
+          <div class="input-group">
+            <label>E-post</label>
+            <input
+              type="email"
+              id="loginEmail"
+              required
+              placeholder="admin@example.com"
+            />
+          </div>
+          <div class="input-group">
+            <label>Lösenord</label>
+            <input type="password" id="loginPassword" required />
+          </div>
+          <button type="submit" class="btn btn-full">Fortsätt</button>
+        </form>
+        <div id="authError" class="error-msg hidden"></div>
+      </div>
+    </div>
+
+    <!-- 2FA Overlay -->
+    <div id="twoFAOverlay" class="overlay hidden">
+      <div class="auth-card glass">
+        <h2>Tvåfaktorsautentisering</h2>
+        <p>Ange koden från din autentiseringsapp.</p>
+        <form id="twoFAForm">
+          <input
+            type="text"
+            id="twoFACode"
+            maxlength="6"
+            pattern="[0-9]*"
+            inputmode="numeric"
+            placeholder="000000"
+            required
+          />
+          <button type="submit" class="btn btn-full">Verifiera</button>
+        </form>
+        <div id="twoFAError" class="error-msg hidden"></div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
