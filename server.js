@@ -283,7 +283,7 @@ app.get('/api/stats', async (req, res) => {
         recentArticles: recentArticles.map(a => ({
           title: a.titleSv || a.title,
           source: sourceMap.get(a.sourceCode) || a.sourceCode,
-          time: a.pubDate
+          pubDate: a.pubDate ? new Date(a.pubDate).toISOString() : null
         }))
       }
     });
