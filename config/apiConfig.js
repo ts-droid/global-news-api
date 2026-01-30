@@ -3,7 +3,7 @@ require('dotenv').config();
 const apiConfig = {
     // DeepSeek API (AI Translations & Explanations)
     deepseek: {
-        apiKey: process.env.AI_INTEGRATIONS_DEEPSEEK_API_KEY || process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+        apiKey: process.env.AI_INTEGRATION_DEEPSEEK_API_KEY || process.env.AI_INTEGRATIONS_DEEPSEEK_API_KEY,
         baseUrl: "https://api.deepseek.com",
         model: "deepseek-chat"
     },
