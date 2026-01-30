@@ -10,23 +10,37 @@ const { db } = require("./db");
 const { aiPrompts } = require("./db/schema");
 const { eq, inArray } = require("drizzle-orm");
 
+// Valid categories for classification
+const VALID_CATEGORIES = ['world', 'politics', 'sports', 'tech', 'business', 'science', 'climate', 'culture'];
+
 // Fallback constant if DB is empty/fails
 const FALLBACK_BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
 1. Översätta nyhetsartiklar till flytande, naturlig svenska
 2. Sammanfatta innehållet i 2-3 koncisa stycken (100-150 ord totalt)
 3. Behålla en objektiv, journalistisk ton
 4. Extrahera ALLA specifika detaljer: namn, platser, siffror, datum
+5. KATEGORISERA artikeln i EN av dessa kategorier baserat på innehållet:
+   - world: Internationella nyheter, geopolitik, diplomati
+   - politics: Politik, val, regering, lagar
+   - sports: Sport, idrott, tävlingar, matcher
+   - tech: Teknik, IT, AI, smartphones, internet
+   - business: Ekonomi, finans, företag, börsen
+   - science: Vetenskap, forskning, medicin, rymden
+   - climate: Klimat, miljö, väder, naturkatastrofer
+   - culture: Kultur, musik, film, konst, underhållning
 6. AVGÖR om detta är en "Breaking News"-händelse (Extremt brådskande, stor påverkan, krig/katastrof/större politiska beslut).
 
-VIKTIGT: 
+VIKTIGT:
 - Skriv ALDRIG vaga fraser som "en spelare", "två nationer", "flera länder" om du har namnen
 - Inkludera ALLTID specifika namn och siffror som finns i texten
 - Om artikeln saknar detaljer, skriv kortfattat vad som är känt
+- Välj den MEST passande kategorin baserat på artikelns huvudämne
 
 Svara ALLTID i följande JSON-format (inget annat):
 {
   "title": "Översatt rubrik på svenska",
   "summary": "Sammanfattning på svenska i 2-3 stycken",
+  "category": "en av: world, politics, sports, tech, business, science, climate, culture",
   "isBreaking": true/false
 }`;
 
@@ -84,16 +98,17 @@ async function getCategoryPrompt(category) {
 }
 
 async function translateAndSummarize(title, content, category) {
-  if (!apiConfig.deepseek.apiKey) {
-    console.warn("DeepSeek API Key not set, skipping AI translation");
-    return { title, summary: content.substring(0, 300) };
+  if (!apiConfig.deepseek.apiKey || apiConfig.deepseek.apiKey === "no-key") {
+    console.warn("⚠️ AI API Key not configured - skipping translation");
+    console.warn("   Set AI_INTEGRATIONS_DEEPSEEK_API_KEY in environment variables");
+    return { title, summary: content.substring(0, 300), category, isBreaking: false };
   }
 
   try {
     const systemPrompt = await getCategoryPrompt(category);
 
     const response = await openai.chat.completions.create({
-      model: "deepseek/deepseek-chat",
+      model: apiConfig.deepseek.model,
       messages: [
         { role: "system", content: systemPrompt },
         {
@@ -107,14 +122,26 @@ async function translateAndSummarize(title, content, category) {
     });
 
     const parsed = JSON.parse(response.choices[0].message.content);
+
+    // Validate category - use AI suggestion if valid, otherwise keep original
+    let finalCategory = category;
+    if (parsed.category && VALID_CATEGORIES.includes(parsed.category.toLowerCase())) {
+      finalCategory = parsed.category.toLowerCase();
+    }
+
     return {
       title: parsed.title || title,
       summary: parsed.summary || content.substring(0, 300),
+      category: finalCategory,
       isBreaking: parsed.isBreaking || false
     };
   } catch (error) {
-    console.error("AI Translation Error:", error);
-    return { title, summary: content.substring(0, 300), isBreaking: false };
+    console.error("❌ AI Translation Error:", error.message);
+    if (error.response) {
+      console.error("   API Response Status:", error.response.status);
+      console.error("   API Response Data:", JSON.stringify(error.response.data || {}).substring(0, 200));
+    }
+    return { title, summary: content.substring(0, 300), category, isBreaking: false };
   }
 }
 
@@ -124,7 +151,7 @@ async function explainTopic(title, summary, category) {
 
   try {
     const response = await openai.chat.completions.create({
-      model: "deepseek/deepseek-chat",
+      model: apiConfig.deepseek.model,
       messages: [
         {
           role: "system",

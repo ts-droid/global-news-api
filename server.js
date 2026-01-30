@@ -119,13 +119,17 @@ const packageJson = require('./package.json');
 app.get('/api/health', async (req, res) => {
   try {
     const sourcesCount = await db.select().from(rssSources);
+    const { apiConfig } = require('./config/apiConfig');
+    const aiConfigured = !!(apiConfig.deepseek.apiKey && apiConfig.deepseek.apiKey !== "no-key");
+
     res.json({
       status: 'success',
       message: 'Global Intelligence News API is running',
       timestamp: new Date().toISOString(),
       version: packageJson.version,
       sources: sourcesCount.length,
-      backgroundWorker: 'active'
+      backgroundWorker: 'active',
+      aiTranslation: aiConfigured ? 'configured' : 'NOT CONFIGURED - set AI_INTEGRATIONS_DEEPSEEK_API_KEY'
     });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });

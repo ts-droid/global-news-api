@@ -47,7 +47,7 @@ async function processArticlesBatch(articlesToProcess, sources) {
           pubDate: new Date(article.pubDate),
           imageUrl: article.imageUrl,
           author: article.author,
-          category: article.category,
+          category: aiResult.category || article.category, // Use AI-classified category
           region: article.region,
           language: article.language,
           isTranslated: true,
