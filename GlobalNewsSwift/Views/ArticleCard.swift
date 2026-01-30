@@ -5,20 +5,7 @@ struct ArticleCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let imageUrl = article.imageUrl, let url = URL(string: imageUrl) {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(height: 200)
-                        .clipped()
-                } placeholder: {
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(height: 200)
-                }
-                .cornerRadius(12)
-            }
+            // Image removed for text-only mode
             
             VStack(alignment: .leading, spacing: 8) {
                 HStack {

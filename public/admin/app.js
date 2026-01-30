@@ -155,6 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Prompts Management
     async function fetchPrompts() {
         const categories = [
+            { id: 'base', label: 'Grundinstruktioner (Base)' },
             { id: 'world', label: 'Världsnyheter' },
             { id: 'politics', label: 'Politik' },
             { id: 'sports', label: 'Sport' },

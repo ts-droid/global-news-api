@@ -120,7 +120,7 @@ app.get('/api/health', async (req, res) => {
       status: 'success',
       message: 'Global Intelligence News API is running',
       timestamp: new Date().toISOString(),
-      version: '1.2.3',
+      version: '1.2.4',
       sources: sourcesCount.length,
       backgroundWorker: 'active'
     });

@@ -9,9 +9,10 @@ const openrouter = new OpenAI({
 
 const { db } = require("./db");
 const { aiPrompts } = require("./db/schema");
-const { eq } = require("drizzle-orm");
+const { eq, inArray } = require("drizzle-orm");
 
-const BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
+// Fallback constant if DB is empty/fails
+const FALLBACK_BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
 1. Översätta nyhetsartiklar till flytande, naturlig svenska
 2. Sammanfatta innehållet i 2-3 koncisa stycken (100-150 ord totalt)
 3. Behålla en objektiv, journalistisk ton
@@ -33,15 +34,27 @@ async function getCategoryPrompt(category) {
   const normalizedCategory = (category || "default").toLowerCase();
 
   try {
-    // Try to find category-specific prompt in DB
-    const [dbPrompt] = await db.select().from(aiPrompts).where(eq(aiPrompts.category, normalizedCategory)).limit(1);
+    // Fetch both 'base' and specific category prompt
+    const prompts = await db
+      .select()
+      .from(aiPrompts)
+      .where(inArray(aiPrompts.category, ["base", normalizedCategory]));
     
-    if (dbPrompt && dbPrompt.isActive) {
-      return `${BASE_INSTRUCTIONS}\n\n${dbPrompt.prompt}`;
+    const basePromptObj = prompts.find(p => p.category === 'base');
+    const categoryPromptObj = prompts.find(p => p.category === normalizedCategory);
+
+    // Determine Base Instructions
+    const baseInstructions = (basePromptObj && basePromptObj.isActive) 
+      ? basePromptObj.prompt 
+      : FALLBACK_BASE_INSTRUCTIONS;
+
+    // Determine Specific Instructions
+    if (categoryPromptObj && categoryPromptObj.isActive) {
+      return `${baseInstructions}\n\n${categoryPromptObj.prompt}`;
     }
 
-    // Fallback to hardcoded defaults if DB prompt not found
-    const prompts = {
+    // Fallback to hardcoded defaults if specific DB prompt not found
+    const fallbackPrompts = {
       world: `VIKTIGT för världsnyheter: Namnge länderna, städerna och nyckelpersonerna.`,
       politics: `VIKTIGT för politiska nyheter: Namnge politiker, partier och specifika beslut.`,
       sports: `VIKTIGT för sportnyheter: Inkludera exakta resultat och namn på lag/spelare.`,
@@ -53,20 +66,20 @@ async function getCategoryPrompt(category) {
       default: `Inkludera specifika namn, platser och datum. Var konkret.`,
     };
 
-    let specificPrompt = prompts.default;
-    if (normalizedCategory.includes("sport")) specificPrompt = prompts.sports;
-    else if (normalizedCategory.includes("tech")) specificPrompt = prompts.tech;
-    else if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) specificPrompt = prompts.business;
-    else if (normalizedCategory.includes("science")) specificPrompt = prompts.science;
-    else if (normalizedCategory.includes("climate") || normalizedCategory.includes("environment")) specificPrompt = prompts.climate;
-    else if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) specificPrompt = prompts.culture;
-    else if (normalizedCategory.includes("politic")) specificPrompt = prompts.politics;
-    else if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) specificPrompt = prompts.world;
+    let specificPrompt = fallbackPrompts.default;
+    if (normalizedCategory.includes("sport")) specificPrompt = fallbackPrompts.sports;
+    else if (normalizedCategory.includes("tech")) specificPrompt = fallbackPrompts.tech;
+    else if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) specificPrompt = fallbackPrompts.business;
+    else if (normalizedCategory.includes("science")) specificPrompt = fallbackPrompts.science;
+    else if (normalizedCategory.includes("climate") || normalizedCategory.includes("environment")) specificPrompt = fallbackPrompts.climate;
+    else if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) specificPrompt = fallbackPrompts.culture;
+    else if (normalizedCategory.includes("politic")) specificPrompt = fallbackPrompts.politics;
+    else if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) specificPrompt = fallbackPrompts.world;
 
-    return `${BASE_INSTRUCTIONS}\n\n${specificPrompt}`;
+    return `${baseInstructions}\n\n${specificPrompt}`;
   } catch (err) {
     console.error("Error fetching prompt from DB, using fallback:", err);
-    return `${BASE_INSTRUCTIONS}\n\nInkludera specifika namn, platser och datum. Var konkret.`;
+    return `${FALLBACK_BASE_INSTRUCTIONS}\n\nInkludera specifika namn, platser och datum. Var konkret.`;
   }
 }
 

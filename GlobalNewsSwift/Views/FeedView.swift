@@ -37,11 +37,15 @@ struct FeedView: View {
                     }
                 }
             }
-            .navigationTitle("Global News")
+            .navigationTitle("NewsLens")
             .background(Color(.systemGroupedBackground))
         }
-        .task {
-            await viewModel.loadNews()
+        .onAppear {
+            if viewModel.articles.isEmpty {
+                Task {
+                    await viewModel.loadNews()
+                }
+            }
         }
     }
 }
