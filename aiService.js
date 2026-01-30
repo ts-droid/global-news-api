@@ -4,7 +4,7 @@ const openrouter = new OpenAI({
   baseURL:
     process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL ||
     "https://openrouter.ai/api/v1",
-  apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+  apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY || "no-key",
 });
 
 const BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
