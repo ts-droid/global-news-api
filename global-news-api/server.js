@@ -113,15 +113,20 @@ const searchArticles = (articles, query) => {
  * GET /api/health
  * Health check endpoint
  */
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'success',
-    message: 'Global Intelligence News API is running',
-    timestamp: new Date().toISOString(),
-    version: '2.0.0',
-    sources: getAllSources().length,
-    backgroundWorker: 'active'
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const sourcesCount = await db.select().from(rssSources);
+    res.json({
+      status: 'success',
+      message: 'Global Intelligence News API is running',
+      timestamp: new Date().toISOString(),
+      version: '2.0.0',
+      sources: sourcesCount.length,
+      backgroundWorker: 'active'
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
 });
 
 /**
@@ -404,7 +409,7 @@ app.use((error, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log('='.repeat(50));
   console.log('🚀 Global Intelligence News API (v2)');
   console.log('='.repeat(50));
