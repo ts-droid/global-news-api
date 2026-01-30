@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const cache = require('./newsCache');
@@ -204,6 +205,83 @@ app.get('/api/news', async (req, res) => {
 app.post('/api/news/refresh', async (req, res) => {
   refreshNews();
   res.json({ status: 'success', message: 'Refresh triggered' });
+});
+
+/**
+ * GET /api/news/search
+ * Search articles by query
+ */
+app.get('/api/news/search', async (req, res) => {
+  try {
+    const { q, limit = 20, offset = 0 } = req.query;
+
+    if (!q || q.trim().length < 2) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Search query must be at least 2 characters'
+      });
+    }
+
+    const searchQuery = q.toLowerCase().trim();
+
+    // Try cache first
+    let articles = cache.get('news_all_all_sv');
+
+    if (!articles) {
+      // Fetch from DB if cache miss
+      const sources = await db.select().from(rssSources);
+      const sourceMap = new Map(sources.map(s => [s.code, s.name]));
+
+      const dbArticles = await db
+        .select()
+        .from(articlesTable)
+        .orderBy(articlesTable.createdAt, "desc")
+        .limit(500); // Search within latest 500 articles
+
+      articles = dbArticles.map(a => ({
+        id: a.id,
+        articleHash: a.articleHash,
+        title: a.title || "No Title",
+        titleSv: a.titleSv || a.title,
+        summarySv: a.summarySv || a.description,
+        description: a.description || "",
+        link: a.link || "#",
+        pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
+        createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
+        source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
+        sourceCode: a.sourceCode,
+        author: a.author || null,
+        category: a.category || "general",
+        region: a.region || "global",
+        readingTime: a.readingTime || "2 min",
+        imageUrl: a.imageUrl || null,
+        isBreaking: !!a.isBreaking,
+        isTranslated: !!a.isTranslated
+      }));
+    }
+
+    // Search in title, titleSv, description, summarySv
+    const searchResults = articles.filter(article => {
+      const titleMatch = (article.title || '').toLowerCase().includes(searchQuery);
+      const titleSvMatch = (article.titleSv || '').toLowerCase().includes(searchQuery);
+      const descMatch = (article.description || '').toLowerCase().includes(searchQuery);
+      const summaryMatch = (article.summarySv || '').toLowerCase().includes(searchQuery);
+      const sourceMatch = (article.source || '').toLowerCase().includes(searchQuery);
+
+      return titleMatch || titleSvMatch || descMatch || summaryMatch || sourceMatch;
+    });
+
+    const paginatedData = paginate(searchResults, limit, offset);
+
+    res.json({
+      status: 'success',
+      query: q,
+      data: paginatedData
+    });
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ status: 'error', message: 'Search failed' });
+  }
 });
 
 /**
