@@ -18,6 +18,15 @@ echo "Syncing files from $SOURCE to $TARGET..."
 # I will NOT use --delete to avoid deleting user's work by accident unless I'm sure.
 # Actually, since I am the "source of truth" for these features, I should overwrite.
 
+# Sync Source Code (Generic)
 rsync -av $SOURCE $TARGET
+
+# Sync Assets specifically to the project's asset catalog structure
+# The project expects assets in Global_news/Assets.xcassets
+ASSETS_SOURCE="$SOURCE/Assets.xcassets/"
+ASSETS_TARGET="$PROJECT_ROOT/../Test/Global_news/Global_news/Global_news/Assets.xcassets/"
+
+echo "Syncing Assets from $ASSETS_SOURCE to $ASSETS_TARGET..."
+rsync -av "$ASSETS_SOURCE" "$ASSETS_TARGET"
 
 echo "Sync complete!"

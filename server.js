@@ -268,7 +268,7 @@ app.get('/api/stats', async (req, res) => {
     });
     
     // Get recent articles
-    const recentArticles = await db.select().from(articlesTable).orderBy(articlesTable.pubDate, "desc").limit(5);
+    const recentArticles = await db.select().from(articlesTable).orderBy(articlesTable.pubDate, "desc").limit(50);
 
     // Map source names
     const sourceMap = new Map(sources.map(s => [s.code, s.name]));
