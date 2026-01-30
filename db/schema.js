@@ -69,6 +69,7 @@ const articles = pgTable("articles", {
   summarySv: text("summary_sv"),
   explanationSv: text("explanation_sv"), // Cached "Explain this" content
   readingTime: varchar("reading_time", { length: 10 }), // e.g. "4 min"
+  isBreaking: boolean("is_breaking").default(false).notNull(),
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

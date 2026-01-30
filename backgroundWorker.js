@@ -48,6 +48,7 @@ async function refreshNews() {
           titleSv: aiResult.title,
           summarySv: aiResult.summary,
           readingTime: Math.max(2, Math.ceil((article.description || '').split(/\s+/).length / 200)).toString() + " min",
+          isBreaking: aiResult.isBreaking || false,
           updatedAt: new Date()
         });
         

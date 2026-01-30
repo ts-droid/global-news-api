@@ -16,7 +16,7 @@ const FALLBACK_BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som
 2. Sammanfatta innehållet i 2-3 koncisa stycken (100-150 ord totalt)
 3. Behålla en objektiv, journalistisk ton
 4. Extrahera ALLA specifika detaljer: namn, platser, siffror, datum
-5. Om innehållet är begränsat/betalvägg: skriv en kort notis baserad på rubriken
+6. AVGÖR om detta är en "Breaking News"-händelse (Extremt brådskande, stor påverkan, krig/katastrof/större politiska beslut).
 
 VIKTIGT: 
 - Skriv ALDRIG vaga fraser som "en spelare", "två nationer", "flera länder" om du har namnen
@@ -26,7 +26,8 @@ VIKTIGT:
 Svara ALLTID i följande JSON-format (inget annat):
 {
   "title": "Översatt rubrik på svenska",
-  "summary": "Sammanfattning på svenska i 2-3 stycken"
+  "summary": "Sammanfattning på svenska i 2-3 stycken",
+  "isBreaking": true/false
 }`;
 
 async function getCategoryPrompt(category) {
@@ -109,10 +110,11 @@ async function translateAndSummarize(title, content, category) {
     return {
       title: parsed.title || title,
       summary: parsed.summary || content.substring(0, 300),
+      isBreaking: parsed.isBreaking || false
     };
   } catch (error) {
     console.error("AI Translation Error:", error);
-    return { title, summary: content.substring(0, 300) };
+    return { title, summary: content.substring(0, 300), isBreaking: false };
   }
 }
 

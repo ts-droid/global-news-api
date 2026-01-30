@@ -172,7 +172,7 @@ app.get('/api/news', async (req, res) => {
             // Parse "4 min" -> 4
             readingTime: parseInt(a.readingTime) || 2,
             imageUrl: a.imageUrl,
-            isBreaking: false // DB schema doesn't have isBreaking yet, default false
+            isBreaking: a.isBreaking || false
         }));
         
         cache.set(cacheKey, articles);
