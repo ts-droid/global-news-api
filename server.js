@@ -498,7 +498,7 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log('='.repeat(50));
-  console.log('🚀 Global Intelligence News API (v2)');
+  console.log(`🚀 Global Intelligence News API (v${packageJson.version})`);
   console.log('='.repeat(50));
   console.log(`✓ Server running on port ${PORT}`);
   console.log(`✓ AI Background Worker: Active`);
