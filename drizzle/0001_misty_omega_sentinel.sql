@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS "articles" CASCADE;
+--> statement-breakpoint
 CREATE TABLE "articles" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"article_hash" varchar(64) NOT NULL,

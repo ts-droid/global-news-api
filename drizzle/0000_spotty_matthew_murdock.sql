@@ -1,4 +1,4 @@
-CREATE TABLE "admin_users" (
+CREATE TABLE IF NOT EXISTS "admin_users" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"email" varchar(255) NOT NULL,
 	"password_hash" text NOT NULL,
@@ -12,7 +12,7 @@ CREATE TABLE "admin_users" (
 	CONSTRAINT "admin_users_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
-CREATE TABLE "rss_sources" (
+CREATE TABLE IF NOT EXISTS "rss_sources" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"code" varchar(50) NOT NULL,
 	"name" varchar(200) NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE "rss_sources" (
 	CONSTRAINT "rss_sources_code_unique" UNIQUE("code")
 );
 --> statement-breakpoint
-CREATE TABLE "ai_prompts" (
+CREATE TABLE IF NOT EXISTS "ai_prompts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"category" varchar(50) NOT NULL,
 	"prompt" text NOT NULL,
@@ -38,3 +38,4 @@ CREATE TABLE "ai_prompts" (
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "ai_prompts_category_unique" UNIQUE("category")
 );
+
