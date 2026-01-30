@@ -212,6 +212,47 @@ app.post('/api/news/refresh', async (req, res) => {
 });
 
 /**
+ * GET /api/test-ai
+ * Test AI translation directly
+ */
+app.get('/api/test-ai', async (req, res) => {
+  const { translateAndSummarize } = require('./aiService');
+  const { apiConfig } = require('./config/apiConfig');
+
+  try {
+    const testTitle = "Tesla announces new electric vehicle";
+    const testContent = "Tesla CEO Elon Musk announced today a new electric vehicle model that will cost $25,000. The car will have a range of 300 miles and will be available in 2026.";
+
+    console.log("Testing AI with config:", {
+      hasApiKey: !!apiConfig.deepseek.apiKey,
+      baseUrl: apiConfig.deepseek.baseUrl,
+      model: apiConfig.deepseek.model
+    });
+
+    const result = await translateAndSummarize(testTitle, testContent, "tech");
+
+    res.json({
+      status: 'success',
+      config: {
+        hasApiKey: !!apiConfig.deepseek.apiKey,
+        keyPrefix: apiConfig.deepseek.apiKey ? apiConfig.deepseek.apiKey.substring(0, 10) + '...' : 'none',
+        baseUrl: apiConfig.deepseek.baseUrl,
+        model: apiConfig.deepseek.model
+      },
+      input: { title: testTitle, content: testContent },
+      output: result,
+      wasTranslated: result.title !== testTitle
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+/**
  * GET /api/news/search
  * Search articles by query
  */
