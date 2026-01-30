@@ -160,19 +160,24 @@ app.get('/api/news', async (req, res) => {
         const sourceMap = new Map(sources.map(s => [s.code, s.name]));
 
         articles = dbArticles.map(a => ({
-            id: a.articleHash, // Use hash as ID to match old format
+            id: a.id, // Use real UUID
+            articleHash: a.articleHash,
             title: a.title || "No Title",
             titleSv: a.titleSv || a.title || "Rubrik saknas",
             summarySv: a.summarySv || a.description || "Ingen sammanfattning tillgänglig.",
             description: a.description || "",
             link: a.link || "#",
             pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
+            createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
             source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
+            sourceCode: a.sourceCode,
+            author: a.author || null,
             category: a.category || "general",
-            // Parse "4 min" -> 4
-            readingTime: parseInt(a.readingTime) || 2,
+            region: a.region || "global",
+            readingTime: a.readingTime || "2 min",
             imageUrl: a.imageUrl || null,
-            isBreaking: !!a.isBreaking
+            isBreaking: !!a.isBreaking,
+            isTranslated: !!a.isTranslated
         }));
         
         cache.set(cacheKey, articles);
