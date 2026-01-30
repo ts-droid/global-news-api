@@ -212,6 +212,19 @@ app.post('/api/news/refresh', async (req, res) => {
 });
 
 /**
+ * GET /api/debug-prompts
+ * Show what prompts are being used
+ */
+app.get('/api/debug-prompts', async (req, res) => {
+  try {
+    const prompts = await db.select().from(aiPrompts);
+    res.json({ status: 'success', prompts });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
  * GET /api/test-ai
  * Test AI translation directly with raw API call
  */
