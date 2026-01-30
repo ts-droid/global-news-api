@@ -20,7 +20,7 @@ const {
   verify2FA 
 } = require('./adminAuth');
 const { db } = require('./db');
-const { adminUsers, rssSources, aiPrompts } = require('./db/schema');
+const { adminUsers, rssSources, aiPrompts, articles: articlesTable } = require('./db/schema');
 const { eq } = require('drizzle-orm');
 
 const swedishMockArticles = [
@@ -144,27 +144,25 @@ app.get('/api/news', async (req, res) => {
     let articles = cache.get(cacheKey);
     
     if (!articles) {
-      console.log('Cache miss - serving standard feed from DB sources');
-      let sourcesQuery = db.select().from(rssSources).where(eq(rssSources.isActive, true));
+      console.log('Cache miss - fetching from DB articles table');
       
-      // Note: Category/Region filtering in the fetch logic would need update if moved fully to DB
-      // For now we fetch all active and filter in JS or rely on DB
-      const allActiveSources = await sourcesQuery;
-      let filteredSources = allActiveSources;
+      let query = db.select().from(articlesTable).orderBy(articlesTable.pubDate, "desc").limit(100);
       
-      if (category) filteredSources = allActiveSources.filter(s => s.category === category);
-      if (region) filteredSources = allActiveSources.filter(s => s.region === region);
+      // Basic filtering
+      if (category) query = query.where(eq(articlesTable.category, category));
+      if (region) query = query.where(eq(articlesTable.region, region));
       
-      const result = await fetchFromSources(filteredSources);
-      articles = deduplicateArticles(result.articles);
-      articles = sortByDate(articles);
+      const dbArticles = await query;
       
-      // Fallback to mock data if no articles fetched
-      if (articles.length === 0) {
-        console.log('No articles fetched - using mock data');
-        articles = swedishMockArticles;
-      } else {
+      if (dbArticles.length > 0) {
+        articles = dbArticles;
         cache.set(cacheKey, articles);
+      } else {
+        // Fallback to fetch from sources if DB empty (cold start)
+        console.log('DB empty - triggering fetch from sources');
+        // We trigger background refresh but return mock/empty for now to avoid hanging
+        refreshNews(); // Async trigger
+        articles = swedishMockArticles;
       }
     }
     
@@ -495,11 +493,17 @@ app.use((error, req, res, next) => {
   });
 });
 
+const { ensureSchema } = require('./db/migrate');
+
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log('='.repeat(50));
   console.log(`🚀 Global Intelligence News API (v${packageJson.version})`);
   console.log('='.repeat(50));
+  
+  // Ensure DB Schema
+  await ensureSchema();
+  
   console.log(`✓ Server running on port ${PORT}`);
   console.log(`✓ AI Background Worker: Active`);
   console.log('='.repeat(50));

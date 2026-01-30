@@ -42,8 +42,41 @@ const aiPrompts = pgTable("ai_prompts", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Articles - Persistent storage for news items
+const articles = pgTable("articles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  articleHash: varchar("article_hash", { length: 64 }).unique().notNull(), // MD5 of link+title for deduplication
+  sourceId: uuid("source_id").references(() => rssSources.id),
+  sourceCode: varchar("source_code", { length: 50 }).notNull(),
+  
+  // Original Content
+  title: text("title").notNull(),
+  link: text("link").notNull(),
+  description: text("description"), // Original summary/snippet
+  content: text("content"), // Full content if available
+  pubDate: timestamp("pub_date").notNull(),
+  imageUrl: text("image_url"),
+  author: varchar("author", { length: 255 }),
+  
+  // Metadata
+  category: varchar("category", { length: 50 }).notNull(),
+  region: varchar("region", { length: 50 }).notNull(),
+  language: varchar("language", { length: 10 }).default("en"),
+  
+  // Localized/AI Content
+  isTranslated: boolean("is_translated").default(false).notNull(),
+  titleSv: text("title_sv"),
+  summarySv: text("summary_sv"),
+  explanationSv: text("explanation_sv"), // Cached "Explain this" content
+  readingTime: varchar("reading_time", { length: 10 }), // e.g. "4 min"
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 module.exports = {
   adminUsers,
   rssSources,
   aiPrompts,
+  articles,
 };
