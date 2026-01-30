@@ -21,7 +21,7 @@ const {
 } = require('./adminAuth');
 const { db } = require('./db');
 const { adminUsers, rssSources, aiPrompts, articles: articlesTable } = require('./db/schema');
-const { eq } = require('drizzle-orm');
+const { eq, desc } = require('drizzle-orm');
 
 const swedishMockArticles = [
   {
@@ -268,7 +268,7 @@ app.get('/api/stats', async (req, res) => {
     });
     
     // Get recent articles
-    const recentArticles = await db.select().from(articlesTable).orderBy(articlesTable.pubDate, "desc").limit(50);
+    const recentArticles = await db.select().from(articlesTable).orderBy(desc(articlesTable.pubDate)).limit(50);
 
     // Map source names
     const sourceMap = new Map(sources.map(s => [s.code, s.name]));
