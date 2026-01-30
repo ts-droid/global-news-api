@@ -120,7 +120,7 @@ app.get('/api/health', async (req, res) => {
       status: 'success',
       message: 'Global Intelligence News API is running',
       timestamp: new Date().toISOString(),
-      version: '1.1.0',
+      version: '1.1.1',
       sources: sourcesCount.length,
       backgroundWorker: 'active'
     });
@@ -383,15 +383,20 @@ app.post('/api/admin/sources/test', authenticateAdmin, async (req, res) => {
     const { rssUrl } = req.body;
     if (!rssUrl) return res.status(400).json({ status: 'error', message: 'RSS URL required' });
     
+    const axios = require('axios');
     const RSSParser = require('rss-parser');
-    const parser = new RSSParser({
+    const parser = new RSSParser();
+    
+    const response = await axios.get(rssUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/rss+xml, application/xml;q=0.9, */*;q=0.8'
       },
-      timeout: 10000
+      timeout: 10000,
+      maxRedirects: 5
     });
-    const feed = await parser.parseURL(rssUrl);
+    
+    const feed = await parser.parseString(response.data);
     
     res.json({ 
       status: 'success', 
