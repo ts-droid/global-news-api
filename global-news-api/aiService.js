@@ -1,16 +1,16 @@
 const OpenAI = require("openai");
 
-// Support both OpenRouter and DeepSeek directly
-// Priority: DEEPSEEK_API_KEY > AI_INTEGRATIONS_OPENROUTER_API_KEY
-const useDeepSeekDirect = !!process.env.DEEPSEEK_API_KEY;
+// Support multiple API key naming conventions
+// Priority: AI_INTEGRATION_DEEPSEEK_API_KEY > DEEPSEEK_API_KEY > AI_INTEGRATIONS_OPENROUTER_API_KEY
+const deepseekKey = process.env.AI_INTEGRATION_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
+const openrouterKey = process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY;
+const useDeepSeekDirect = !!deepseekKey;
 
 const aiClient = new OpenAI({
   baseURL: useDeepSeekDirect
     ? "https://api.deepseek.com"
     : (process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1"),
-  apiKey: useDeepSeekDirect
-    ? process.env.DEEPSEEK_API_KEY
-    : process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+  apiKey: useDeepSeekDirect ? deepseekKey : openrouterKey,
 });
 
 // Model name differs between OpenRouter and DeepSeek direct
@@ -89,10 +89,10 @@ function getCategoryPrompt(category) {
 }
 
 async function translateAndSummarize(title, content, category) {
-  const hasApiKey = process.env.DEEPSEEK_API_KEY || process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY;
+  const hasApiKey = deepseekKey || openrouterKey;
 
   if (!hasApiKey) {
-    console.warn("No AI API key configured (DEEPSEEK_API_KEY or AI_INTEGRATIONS_OPENROUTER_API_KEY), skipping translation");
+    console.warn("No AI API key configured (AI_INTEGRATION_DEEPSEEK_API_KEY, DEEPSEEK_API_KEY, or AI_INTEGRATIONS_OPENROUTER_API_KEY), skipping translation");
     return { title, summary: content.substring(0, 300) };
   }
 
@@ -125,7 +125,7 @@ async function translateAndSummarize(title, content, category) {
 }
 
 async function explainTopic(title, summary, category) {
-  const hasApiKey = process.env.DEEPSEEK_API_KEY || process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY;
+  const hasApiKey = deepseekKey || openrouterKey;
 
   if (!hasApiKey)
     return "Inget AI-stöd konfigurerat.";
