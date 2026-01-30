@@ -225,6 +225,52 @@ app.get('/api/debug-prompts', async (req, res) => {
 });
 
 /**
+ * POST /api/fix-base-prompt
+ * Update the base prompt to include JSON format requirements
+ */
+app.post('/api/fix-base-prompt', async (req, res) => {
+  try {
+    const newBasePrompt = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
+1. Översätta nyhetsartiklar till flytande, naturlig svenska
+2. Sammanfatta innehållet i 2-3 koncisa stycken (100-150 ord totalt)
+3. Behålla en objektiv, journalistisk ton
+4. Extrahera ALLA specifika detaljer: namn, platser, siffror, datum
+5. KATEGORISERA artikeln i EN av dessa kategorier baserat på innehållet:
+   - world: Internationella nyheter, geopolitik, diplomati
+   - politics: Politik, val, regering, lagar
+   - sports: Sport, idrott, tävlingar, matcher
+   - tech: Teknik, IT, AI, smartphones, internet
+   - business: Ekonomi, finans, företag, börsen
+   - science: Vetenskap, forskning, medicin, rymden
+   - climate: Klimat, miljö, väder, naturkatastrofer
+   - culture: Kultur, musik, film, konst, underhållning
+6. AVGÖR om detta är en "Breaking News"-händelse (Extremt brådskande, stor påverkan, krig/katastrof/större politiska beslut).
+
+VIKTIGT:
+- Skriv ALDRIG vaga fraser som "en spelare", "två nationer", "flera länder" om du har namnen
+- Inkludera ALLTID specifika namn och siffror som finns i texten
+- Om artikeln saknar detaljer, skriv kortfattat vad som är känt
+- Välj den MEST passande kategorin baserat på artikelns huvudämne
+
+Svara ALLTID i följande JSON-format (inget annat):
+{
+  "title": "Översatt rubrik på svenska",
+  "summary": "Sammanfattning på svenska i 2-3 stycken",
+  "category": "en av: world, politics, sports, tech, business, science, climate, culture",
+  "isBreaking": true/false
+}`;
+
+    await db.update(aiPrompts)
+      .set({ prompt: newBasePrompt, updatedAt: new Date() })
+      .where(eq(aiPrompts.category, 'base'));
+
+    res.json({ status: 'success', message: 'Base prompt updated with JSON format requirements' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
  * GET /api/test-ai
  * Test AI translation directly with raw API call
  */
