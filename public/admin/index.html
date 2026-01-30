@@ -61,7 +61,7 @@
 
         <div id="viewContainer" class="view-container">
           <!-- Dashboard Home View -->
-          <section id="dashboardView" class="view">
+          <section id="dashboardView" class="view active">
             <div class="stats-grid">
               <div class="stat-card">
                 <i class="fas fa-rss-square"></i>
@@ -90,21 +90,128 @@
               <div class="panel glass">
                 <h2>Systemstatus</h2>
                 <div id="systemStatusList" class="status-list">
-                  <!-- Status items dynamic -->
+                  <div class="status-item"><span class="dot active"></span> Backend API: Online</div>
+                  <div class="status-item"><span class="dot active"></span> Database: Connected</div>
+                  <div class="status-item"><span class="dot active"></span> AI Worker: Running</div>
                 </div>
               </div>
               <div class="panel glass">
                 <h2>Senaste Händelser</h2>
                 <div id="recentActivityLog" class="activity-log">
-                  <!-- Activity items dynamic -->
+                   <p class="empty-msg">Inga händelser loggade än.</p>
                 </div>
               </div>
             </div>
           </section>
 
-          <!-- Additional views will be handled via JS -->
+          <!-- Sources View -->
+          <section id="sourcesView" class="view hidden">
+            <div class="view-header">
+                <h2>Hantera Nyhetskällor</h2>
+                <button class="btn btn-primary" id="addSourceBtn">
+                    <i class="fas fa-plus"></i> Lägg till källa
+                </button>
+            </div>
+            <div class="panel glass">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Namn</th>
+                            <th>Kategori</th>
+                            <th>Region</th>
+                            <th>Status</th>
+                            <th>Åtgärder</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sourcesTableBody">
+                        <!-- Dynamic content -->
+                    </tbody>
+                </table>
+            </div>
+          </section>
+
+          <!-- Prompts View -->
+          <section id="promptsView" class="view hidden">
+            <div class="panel glass">
+                <h2>AI Prompter & Inställningar</h2>
+                <p>Här kan du justera hur AI:n sammanfattar och översätter nyheter.</p>
+                <div class="editor-placeholder">Kommer snart...</div>
+            </div>
+          </section>
+
+          <!-- Stats View -->
+          <section id="statsView" class="view hidden">
+            <div class="panel glass">
+                <h2>API Statistik</h2>
+                <div id="detailedStats">
+                    <p>Laddar detaljerad statistik...</p>
+                </div>
+            </div>
+          </section>
         </div>
       </main>
+    </div>
+
+    <!-- Add Source Modal -->
+    <div id="sourceModal" class="overlay hidden">
+      <div class="modal glass">
+        <div class="modal-header">
+            <h2>Lägg till Nyhetskälla</h2>
+            <button class="close-modal" id="closeSourceModal">&times;</button>
+        </div>
+        <form id="sourceForm">
+          <div class="form-grid">
+            <div class="input-group">
+                <label>Namn</label>
+                <input type="text" id="sourceName" required placeholder="t.ex. BBC News" />
+            </div>
+            <div class="input-group">
+                <label>Identifierare (Kod)</label>
+                <input type="text" id="sourceCode" required placeholder="t.ex. EU-BBC" />
+            </div>
+          </div>
+          <div class="input-group">
+            <label>RSS URL</label>
+            <div class="input-with-action">
+                <input type="url" id="sourceRssUrl" required placeholder="https://..." />
+                <button type="button" class="btn btn-secondary" id="testRssBtn">Testa</button>
+            </div>
+            <div id="testResult" class="test-status hidden"></div>
+          </div>
+          <div class="form-grid">
+            <div class="input-group">
+                <label>Kategori</label>
+                <select id="sourceCategory">
+                    <option value="international">International</option>
+                    <option value="swedish">Swedish</option>
+                    <option value="tech">Tech</option>
+                    <option value="business">Business</option>
+                    <option value="sports">Sports</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>Region</label>
+                <select id="sourceRegion">
+                    <option value="global">Global</option>
+                    <option value="europe">Europe</option>
+                    <option value="north-america">North America</option>
+                    <option value="asia">Asia</option>
+                    <option value="africa">Africa</option>
+                    <option value="south-america">South America</option>
+                    <option value="middle-east">Middle East</option>
+                </select>
+            </div>
+          </div>
+          <div class="input-group">
+            <label>Webbplats URL</label>
+            <input type="url" id="sourceWebsite" placeholder="https://..." />
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn" id="cancelSourceBtn">Avbryt</button>
+            <button type="submit" class="btn btn-primary" id="saveSourceBtn" disabled>Spara källa</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <!-- Login Overlay -->

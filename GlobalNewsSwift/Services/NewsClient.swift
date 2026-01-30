@@ -2,7 +2,7 @@ import Foundation
 
 class NewsClient {
     static let shared = NewsClient()
-    private let baseURL = URL(string: "https://global-news-api.railway.app/api")! // Replace with actual URL
+    private let baseURL = URL(string: "https://global-news-api-production.up.railway.app/api")!
     
     enum NetworkError: Error {
         case invalidURL

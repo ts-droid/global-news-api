@@ -3,37 +3,55 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentUser = null;
     let currentToken = localStorage.getItem('admin_token');
     let currentView = 'dashboard';
+    let testPassed = false;
 
     // Elements
     const loginOverlay = document.getElementById('loginOverlay');
     const loginForm = document.getElementById('loginForm');
+    const authError = document.getElementById('authError');
     const logoutBtn = document.getElementById('logoutBtn');
-    const viewContainer = document.getElementById('viewContainer');
+    
+    const views = document.querySelectorAll('.view');
     const sidebarItems = document.querySelectorAll('.sidebar li');
     const viewTitle = document.getElementById('viewTitle');
+    
+    // Sources elements
+    const sourcesTableBody = document.getElementById('sourcesTableBody');
+    const addSourceBtn = document.getElementById('addSourceBtn');
+    const sourceModal = document.getElementById('sourceModal');
+    const closeSourceModal = document.getElementById('closeSourceModal');
+    const cancelSourceBtn = document.getElementById('cancelSourceBtn');
+    const sourceForm = document.getElementById('sourceForm');
+    const testRssBtn = document.getElementById('testRssBtn');
+    const testResult = document.getElementById('testResult');
+    const saveSourceBtn = document.getElementById('saveSourceBtn');
 
     // Initialize
     async function init() {
         if (!currentToken) {
             showLogin();
         } else {
-            // Validate token and get stats
             try {
-                await fetchStats();
+                // Initial load
+                await switchView('dashboard');
                 hideLogin();
             } catch (err) {
+                console.error('Init failed:', err);
                 showLogin();
             }
         }
     }
 
     // View Management
-    function switchView(viewName) {
+    async function switchView(viewName) {
         currentView = viewName;
+        
+        // Update sidebar
         sidebarItems.forEach(item => {
             item.classList.toggle('active', item.dataset.view === viewName);
         });
         
+        // Update Title
         const titles = {
             'dashboard': 'Dashboard',
             'sources': 'Nyhetskällor',
@@ -42,16 +60,23 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         viewTitle.textContent = titles[viewName] || 'Admin';
 
-        renderView(viewName);
-    }
+        // Toggle visibility
+        views.forEach(v => {
+            if (v.id === viewName + 'View') {
+                v.classList.remove('hidden');
+                v.classList.add('active');
+            } else {
+                v.classList.add('hidden');
+                v.classList.remove('active');
+            }
+        });
 
-    async function renderView(view) {
-        if (view === 'dashboard') {
+        // Trigger data load
+        if (viewName === 'dashboard') {
             await fetchStats();
-        } else if (view === 'sources') {
+        } else if (viewName === 'sources') {
             await fetchSources();
         }
-        // Other views stubbed
     }
 
     // API Calls
@@ -67,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (response.status === 401 || response.status === 403) {
             handleLogout();
-            throw new Error('Session expired');
+            throw new Error('Sensionen har gått ut. Vänligen logga in igen.');
         }
 
         if (data.status === 'error') throw new Error(data.message);
@@ -95,33 +120,95 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderSourcesTable(sources) {
-        viewContainer.innerHTML = `
-            <div class="panel glass">
-                <table class="admin-table">
-                    <thead>
-                        <tr>
-                            <th>Namn</th>
-                            <th>Kategori</th>
-                            <th>Region</th>
-                            <th>Status</th>
-                            <th>Åtgärder</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${sources.map(s => `
-                            <tr>
-                                <td>${s.name}</td>
-                                <td>${s.category}</td>
-                                <td>${s.region}</td>
-                                <td><span class="status-pill ${s.isActive ? 'active' : 'inactive'}">${s.isActive ? 'Aktiv' : 'Inaktiv'}</span></td>
-                                <td><button class="btn-icon"><i class="fas fa-edit"></i></button></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
+        if (!sourcesTableBody) return;
+        
+        sourcesTableBody.innerHTML = sources.map(s => `
+            <tr>
+                <td>
+                    <div class="source-info">
+                        <strong>${s.name}</strong>
+                        <br/><small style="color:var(--text-secondary)">${s.code}</small>
+                    </div>
+                </td>
+                <td>${s.category}</td>
+                <td>${s.region}</td>
+                <td><span class="status-pill ${s.isActive ? 'active' : 'inactive'}">${s.isActive ? 'Aktiv' : 'Inaktiv'}</span></td>
+                <td>
+                    <button class="btn-icon" onclick="alert('Edit id: ${s.id}')"><i class="fas fa-edit"></i></button>
+                </td>
+            </tr>
+        `).join('');
     }
+
+    // Modal Handling
+    addSourceBtn.addEventListener('click', () => {
+        sourceModal.classList.remove('hidden');
+        sourceForm.reset();
+        testResult.classList.add('hidden');
+        saveSourceBtn.disabled = true;
+        testPassed = false;
+    });
+
+    const hideModal = () => sourceModal.classList.add('hidden');
+    closeSourceModal.addEventListener('click', hideModal);
+    cancelSourceBtn.addEventListener('click', hideModal);
+
+    testRssBtn.addEventListener('click', async () => {
+        const rssUrl = document.getElementById('sourceRssUrl').value;
+        if (!rssUrl) return alert('Ange en RSS URL först');
+        
+        testRssBtn.disabled = true;
+        testRssBtn.textContent = 'Testar...';
+        testResult.classList.remove('hidden');
+        testResult.className = 'test-status';
+        testResult.textContent = 'Validerar feed...';
+
+        try {
+            const result = await apiFetch('/api/admin/sources/test', {
+                method: 'POST',
+                body: JSON.stringify({ rssUrl })
+            });
+            
+            testResult.classList.add('success');
+            testResult.innerHTML = `<i class="fas fa-check-circle"></i> OK! Hittade <strong>${result.data.itemCount}</strong> artiklar. <br/> "${result.data.title}"`;
+            saveSourceBtn.disabled = false;
+            testPassed = true;
+        } catch (err) {
+            testResult.classList.add('error');
+            testResult.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${err.message}`;
+            saveSourceBtn.disabled = true;
+            testPassed = false;
+        } finally {
+            testRssBtn.disabled = false;
+            testRssBtn.textContent = 'Testa';
+        }
+    });
+
+    sourceForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!testPassed) return alert('Du måste testa källan först!');
+
+        const formData = {
+            name: document.getElementById('sourceName').value,
+            code: document.getElementById('sourceCode').value,
+            rssUrl: document.getElementById('sourceRssUrl').value,
+            category: document.getElementById('sourceCategory').value,
+            region: document.getElementById('sourceRegion').value,
+            website: document.getElementById('sourceWebsite').value,
+            isActive: true
+        };
+
+        try {
+            await apiFetch('/api/admin/sources', {
+                method: 'POST',
+                body: JSON.stringify(formData)
+            });
+            hideModal();
+            fetchSources(); // Refresh list
+        } catch (err) {
+            alert('Misslyckades att spara: ' + err.message);
+        }
+    });
 
     // Auth flows
     function showLogin() {
@@ -154,13 +241,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentToken = data.token;
                 localStorage.setItem('admin_token', currentToken);
                 hideLogin();
-                await fetchStats();
-            } else if (data.requirePasswordChange) {
-                alert('Du måste byta lösenord. Implementeras snart.');
+                await switchView('dashboard');
+            } else if (data.requirePasswordChange || data.require2FA) {
+                alert('Säkerhetsautentisering krävs (TOTP/Lösenordsbyte). Implementera i modal.');
             }
         } catch (err) {
-            document.getElementById('authError').textContent = err.message;
-            document.getElementById('authError').classList.remove('hidden');
+            authError.textContent = err.message;
+            authError.classList.remove('hidden');
         }
     });
 

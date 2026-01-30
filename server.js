@@ -375,6 +375,33 @@ app.get('/api/admin/sources', authenticateAdmin, async (req, res) => {
 });
 
 /**
+ * POST /api/admin/sources/test
+ * Test an RSS feed URL
+ */
+app.post('/api/admin/sources/test', authenticateAdmin, async (req, res) => {
+  try {
+    const { rssUrl } = req.body;
+    if (!rssUrl) return res.status(400).json({ status: 'error', message: 'RSS URL required' });
+    
+    const RSSParser = require('rss-parser');
+    const parser = new RSSParser();
+    const feed = await parser.parseURL(rssUrl);
+    
+    res.json({ 
+      status: 'success', 
+      data: {
+        title: feed.title,
+        description: feed.description,
+        itemCount: feed.items.length,
+        items: feed.items.slice(0, 3).map(item => ({ title: item.title }))
+      } 
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: `Test misslyckades: ${error.message}` });
+  }
+});
+
+/**
  * POST /api/admin/sources
  * Add a new news source
  */
