@@ -213,23 +213,39 @@ app.post('/api/news/refresh', async (req, res) => {
 
 /**
  * GET /api/test-ai
- * Test AI translation directly
+ * Test AI translation directly with raw API call
  */
 app.get('/api/test-ai', async (req, res) => {
-  const { translateAndSummarize } = require('./aiService');
   const { apiConfig } = require('./config/apiConfig');
+  const OpenAI = require('openai');
 
   try {
     const testTitle = "Tesla announces new electric vehicle";
     const testContent = "Tesla CEO Elon Musk announced today a new electric vehicle model that will cost $25,000. The car will have a range of 300 miles and will be available in 2026.";
 
-    console.log("Testing AI with config:", {
-      hasApiKey: !!apiConfig.deepseek.apiKey,
-      baseUrl: apiConfig.deepseek.baseUrl,
-      model: apiConfig.deepseek.model
+    const openai = new OpenAI({
+      baseURL: apiConfig.deepseek.baseUrl,
+      apiKey: apiConfig.deepseek.apiKey,
     });
 
-    const result = await translateAndSummarize(testTitle, testContent, "tech");
+    const systemPrompt = `Du är en nyhetsjournalist. Översätt till svenska och sammanfatta.
+Svara i JSON: {"title": "svensk titel", "summary": "svensk sammanfattning", "category": "tech", "isBreaking": false}`;
+
+    console.log("Making direct API call to DeepSeek...");
+
+    const response = await openai.chat.completions.create({
+      model: apiConfig.deepseek.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Rubrik: ${testTitle}\n\nInnehåll: ${testContent}` }
+      ],
+      max_tokens: 600,
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    });
+
+    const rawResponse = response.choices[0].message.content;
+    const parsed = JSON.parse(rawResponse);
 
     res.json({
       status: 'success',
@@ -240,14 +256,16 @@ app.get('/api/test-ai', async (req, res) => {
         model: apiConfig.deepseek.model
       },
       input: { title: testTitle, content: testContent },
-      output: result,
-      wasTranslated: result.title !== testTitle
+      rawApiResponse: rawResponse,
+      parsedOutput: parsed,
+      wasTranslated: parsed.title !== testTitle
     });
   } catch (error) {
     res.status(500).json({
       status: 'error',
       message: error.message,
-      stack: error.stack
+      errorType: error.constructor.name,
+      stack: error.stack?.split('\n').slice(0, 5)
     });
   }
 });
