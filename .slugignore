@@ -1,0 +1,7 @@
+Gemfile
+Gemfile.lock
+update_project.rb
+vendor/
+GlobalNewsSwift/
+sync_to_xcode.sh
+Global-News-Digest/
