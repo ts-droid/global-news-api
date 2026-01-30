@@ -1,10 +1,9 @@
 const OpenAI = require("openai");
+const { apiConfig } = require("./config/apiConfig");
 
-const openrouter = new OpenAI({
-  baseURL:
-    process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL ||
-    "https://openrouter.ai/api/v1",
-  apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY || "no-key",
+const openai = new OpenAI({
+  baseURL: apiConfig.deepseek.baseUrl,
+  apiKey: apiConfig.deepseek.apiKey || "no-key",
 });
 
 const { db } = require("./db");
@@ -84,15 +83,15 @@ async function getCategoryPrompt(category) {
 }
 
 async function translateAndSummarize(title, content, category) {
-  if (!process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY) {
-    console.warn("AI_INTEGRATIONS_OPENROUTER_API_KEY not set, skipping AI translation");
+  if (!apiConfig.deepseek.apiKey) {
+    console.warn("DeepSeek API Key not set, skipping AI translation");
     return { title, summary: content.substring(0, 300) };
   }
 
   try {
     const systemPrompt = getCategoryPrompt(category);
 
-    const response = await openrouter.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "deepseek/deepseek-chat",
       messages: [
         { role: "system", content: systemPrompt },
@@ -118,11 +117,11 @@ async function translateAndSummarize(title, content, category) {
 }
 
 async function explainTopic(title, summary, category) {
-  if (!process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY)
+  if (!apiConfig.deepseek.apiKey)
     return "Inget AI-stöd konfigurerat.";
 
   try {
-    const response = await openrouter.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "deepseek/deepseek-chat",
       messages: [
         {
