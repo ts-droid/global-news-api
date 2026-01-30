@@ -1,9 +1,7 @@
-import { NewsSource } from '../types';
-
 // Global News Sources Configuration
 // 48 sources from all continents
 
-export const newsSources: NewsSource[] = [
+const newsSources = [
   // Swedish Sources (5)
   {
     code: 'SE-SVT',
@@ -503,19 +501,7 @@ export const newsSources: NewsSource[] = [
   }
 ];
 
-// Helper functions
-export const getSourceByCode = (code: string): NewsSource | undefined => {
-  return newsSources.find(source => source.code === code);
-};
-
-export const getSourcesByCategory = (category: string): NewsSource[] => {
-  return newsSources.filter(source => source.category === category);
-};
-
-export const getSourcesByRegion = (region: string): NewsSource[] => {
-  return newsSources.filter(source => source.region === region);
-};
-
-export const getAllSources = (): NewsSource[] => {
-  return newsSources;
+module.exports = {
+  newsSources,
+  getAllSources: () => newsSources
 };
