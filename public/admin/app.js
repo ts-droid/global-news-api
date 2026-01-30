@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentToken = localStorage.getItem('admin_token');
     let currentView = 'dashboard';
     let testPassed = false;
+    let allPrompts = [];
 
     // Elements
     const loginOverlay = document.getElementById('loginOverlay');
@@ -25,6 +26,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const testRssBtn = document.getElementById('testRssBtn');
     const testResult = document.getElementById('testResult');
     const saveSourceBtn = document.getElementById('saveSourceBtn');
+
+    // Prompts elements
+    const promptCategoryList = document.getElementById('promptCategoryList');
+    const promptEditorForm = document.getElementById('promptEditorForm');
+    const editorPlaceholder = document.getElementById('editorPlaceholder');
+    const editorHeader = document.getElementById('editorHeader');
+    const promptTextarea = document.getElementById('promptTextarea');
+    const editPromptCategory = document.getElementById('editPromptCategory');
+    const promptSaveStatus = document.getElementById('promptSaveStatus');
 
     // Initialize
     async function init() {
@@ -76,6 +86,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetchStats();
         } else if (viewName === 'sources') {
             await fetchSources();
+        } else if (viewName === 'prompts') {
+            await fetchPrompts();
         }
     }
 
@@ -92,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (response.status === 401 || response.status === 403) {
             handleLogout();
-            throw new Error('Sensionen har gått ut. Vänligen logga in igen.');
+            throw new Error('Sessionen har gått ut. Vänligen logga in igen.');
         }
 
         if (data.status === 'error') throw new Error(data.message);
@@ -134,13 +146,100 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${s.region}</td>
                 <td><span class="status-pill ${s.isActive ? 'active' : 'inactive'}">${s.isActive ? 'Aktiv' : 'Inaktiv'}</span></td>
                 <td>
-                    <button class="btn-icon" onclick="alert('Edit id: ${s.id}')"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon" onclick="alert('Redigera id: ${s.id}')"><i class="fas fa-edit"></i></button>
                 </td>
             </tr>
         `).join('');
     }
 
-    // Modal Handling
+    // Prompts Management
+    async function fetchPrompts() {
+        const categories = [
+            { id: 'world', label: 'Världsnyheter' },
+            { id: 'politics', label: 'Politik' },
+            { id: 'sports', label: 'Sport' },
+            { id: 'tech', label: 'Teknik & Innovation' },
+            { id: 'business', label: 'Ekonomi & Företag' },
+            { id: 'science', label: 'Vetenskap' },
+            { id: 'climate', label: 'Klimat & Miljö' },
+            { id: 'culture', label: 'Kultur & Nöje' },
+            { id: 'default', label: 'Standard (Övrigt)' }
+        ];
+
+        try {
+            const result = await apiFetch('/api/admin/prompts');
+            allPrompts = result.data;
+            renderPromptCategories(categories);
+        } catch (err) {
+            console.error('Failed to fetch prompts:', err);
+        }
+    }
+
+    function renderPromptCategories(categories) {
+        promptCategoryList.innerHTML = categories.map(cat => `
+            <li data-cat="${cat.id}" class="${editPromptCategory.value === cat.id ? 'active' : ''}">
+                ${cat.label}
+            </li>
+        `).join('');
+
+        promptCategoryList.querySelectorAll('li').forEach(li => {
+            li.addEventListener('click', () => selectPromptCategory(li.dataset.cat, li.textContent.trim()));
+        });
+    }
+
+    function selectPromptCategory(category, label) {
+        editPromptCategory.value = category;
+        
+        // Update UI
+        promptCategoryList.querySelectorAll('li').forEach(li => {
+            li.classList.toggle('active', li.dataset.cat === category);
+        });
+
+        editorHeader.innerHTML = `<h3>Inställningar för ${label}</h3>`;
+        editorPlaceholder.classList.add('hidden');
+        promptEditorForm.classList.remove('hidden');
+
+        // Find existing prompt or default
+        const existing = allPrompts.find(p => p.category === category);
+        promptTextarea.value = existing ? existing.prompt : '';
+        promptSaveStatus.classList.add('hidden');
+    }
+
+    promptEditorForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const category = editPromptCategory.value;
+        const prompt = promptTextarea.value;
+
+        try {
+            const btn = promptEditorForm.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.textContent = 'Sparar...';
+
+            await apiFetch('/api/admin/prompts', {
+                method: 'POST',
+                body: JSON.stringify({ category, prompt })
+            });
+
+            // Update local state
+            const idx = allPrompts.findIndex(p => p.category === category);
+            if (idx > -1) {
+                allPrompts[idx].prompt = prompt;
+            } else {
+                allPrompts.push({ category, prompt });
+            }
+
+            promptSaveStatus.classList.remove('hidden');
+            setTimeout(() => promptSaveStatus.classList.add('hidden'), 3000);
+        } catch (err) {
+            alert('Misslyckades att spara prompt: ' + err.message);
+        } finally {
+            const btn = promptEditorForm.querySelector('button[type="submit"]');
+            btn.disabled = false;
+            btn.textContent = 'Spara instruktioner';
+        }
+    });
+
+    // Modal Handling (Add Source)
     addSourceBtn.addEventListener('click', () => {
         sourceModal.classList.remove('hidden');
         sourceForm.reset();

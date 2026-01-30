@@ -39,6 +39,31 @@ async function seed() {
   }
   console.log(`✓ Seeded ${newsSources.length} sources`);
 
+  // 3. Seed AI Prompts
+  console.log("Seeding AI prompts...");
+  const defaultPrompts = [
+    { category: 'world', prompt: 'VIKTIGT för världsnyheter: Namnge länderna, städerna och nyckelpersonerna. Fokusera på den globala påverkan.' },
+    { category: 'politics', prompt: 'VIKTIGT för politiska nyheter: Namnge politiker, partier och specifika beslut. Behåll strikt objektivitet.' },
+    { category: 'sports', prompt: 'VIKTIGT för sportnyheter: Inkludera exakta resultat, poäng och namn på lag/spelare.' },
+    { category: 'tech', prompt: 'VIKTIGT för tekniknyheter: Förklara tekniken enkelt, nämn specifika produkter, specifikationer och företag.' },
+    { category: 'business', prompt: 'VIKTIGT för ekonominyheter: Inkludera siffror (valuta, procent) och företagsnamn. Fokusera på marknadsreaktioner.' },
+    { category: 'science', prompt: 'VIKTIGT för vetenskapsnyheter: Förklara upptäckten enkelt men korrekt, nämn forskare och institutioner.' },
+    { category: 'climate', prompt: 'VIKTIGT för klimatnyheter: Ange siffror för temperatur/utsläpp, nämn specifika avtal eller rapporter.' },
+    { category: 'culture', prompt: 'VIKTIGT för kulturnyheter: Namnge artister, verk, evenemang och platser.' },
+    { category: 'default', prompt: 'Inkludera specifika namn, platser och datum. Var konkret och informativ.' },
+  ];
+
+  for (const p of defaultPrompts) {
+    const [existing] = await db.select().from(aiPrompts).where(eq(aiPrompts.category, p.category)).limit(1);
+    if (!existing) {
+      await db.insert(aiPrompts).values({
+        ...p,
+        updatedAt: new Date()
+      });
+    }
+  }
+  console.log("✓ AI prompts seeded");
+
   console.log("--- Seeding Completed ---");
   process.exit(0);
 }

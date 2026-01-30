@@ -120,7 +120,7 @@ app.get('/api/health', async (req, res) => {
       status: 'success',
       message: 'Global Intelligence News API is running',
       timestamp: new Date().toISOString(),
-      version: '1.1.2',
+      version: '1.2.1',
       sources: sourcesCount.length,
       backgroundWorker: 'active'
     });
@@ -354,6 +354,52 @@ app.post('/api/admin/2fa/verify', async (req, res) => {
     });
   } catch (error) {
     res.status(401).json({ status: 'error', message: 'Invalid session' });
+  }
+});
+
+// ============================================
+// AI PROMPT MANAGEMENT (Protected)
+// ============================================
+
+/**
+ * GET /api/admin/prompts
+ * List all AI category prompts
+ */
+app.get('/api/admin/prompts', authenticateAdmin, async (req, res) => {
+  try {
+    const prompts = await db.select().from(aiPrompts);
+    res.json({ status: 'success', data: prompts });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/prompts
+ * Update or create an AI prompt
+ */
+app.post('/api/admin/prompts', authenticateAdmin, async (req, res) => {
+  try {
+    const { category, prompt } = req.body;
+    
+    // Check if exists
+    const [existing] = await db.select().from(aiPrompts).where(eq(aiPrompts.category, category)).limit(1);
+    
+    if (existing) {
+      await db.update(aiPrompts)
+        .set({ prompt, updatedAt: new Date() })
+        .where(eq(aiPrompts.category, category));
+    } else {
+      await db.insert(aiPrompts).values({
+        category,
+        prompt,
+        updatedAt: new Date()
+      });
+    }
+    
+    res.json({ status: 'success', message: 'Prompt sparad' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
   }
 });
 

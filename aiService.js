@@ -7,6 +7,10 @@ const openrouter = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY || "no-key",
 });
 
+const { db } = require("./db");
+const { aiPrompts } = require("./db/schema");
+const { eq } = require("drizzle-orm");
+
 const BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
 1. Översätta nyhetsartiklar till flytande, naturlig svenska
 2. Sammanfatta innehållet i 2-3 koncisa stycken (100-150 ord totalt)
@@ -25,56 +29,45 @@ Svara ALLTID i följande JSON-format (inget annat):
   "summary": "Sammanfattning på svenska i 2-3 stycken"
 }`;
 
-const CATEGORY_PROMPTS = {
-  world: `${BASE_INSTRUCTIONS}\n\nVIKTIGT för världsnyheter: ... (porting logic from TS)`,
-  // ... adding others
-};
-
-// I will simplify and port the logic from aiTranslation.ts but in JS
-function getCategoryPrompt(category) {
+async function getCategoryPrompt(category) {
   const normalizedCategory = (category || "default").toLowerCase();
 
-  const prompts = {
-    world: `VIKTIGT för världsnyheter: Namnge länderna, städerna och nyckelpersonerna.`,
-    politics: `VIKTIGT för politiska nyheter: Namnge politiker, partier och specifika beslut.`,
-    sports: `VIKTIGT för sportnyheter: Inkludera exakta resultat och namn på lag/spelare.`,
-    tech: `VIKTIGT för tekniknyheter: Förklara tekniken enkelt, nämn produkter och företag.`,
-    business: `VIKTIGT för ekonominyheter: Inkludera siffror (belopp, procent) och företagsnamn.`,
-    science: `VIKTIGT för vetenskapsnyheter: Förklara upptäckten enkelt, nämn institutioner.`,
-    climate: `VIKTIGT för klimatnyheter: Ange siffror för temperatur/utsläpp, nämn avtal.`,
-    culture: `VIKTIGT för kulturnyheter: Namnge artister, verk och evenemang.`,
-    default: `Inkludera specifika namn, platser och datum. Var konkret.`,
-  };
+  try {
+    // Try to find category-specific prompt in DB
+    const [dbPrompt] = await db.select().from(aiPrompts).where(eq(aiPrompts.category, normalizedCategory)).limit(1);
+    
+    if (dbPrompt && dbPrompt.isActive) {
+      return `${BASE_INSTRUCTIONS}\n\n${dbPrompt.prompt}`;
+    }
 
-  let specificPrompt = prompts.default;
-  if (normalizedCategory.includes("sport")) specificPrompt = prompts.sports;
-  else if (normalizedCategory.includes("tech")) specificPrompt = prompts.tech;
-  else if (
-    normalizedCategory.includes("business") ||
-    normalizedCategory.includes("econom")
-  )
-    specificPrompt = prompts.business;
-  else if (normalizedCategory.includes("science"))
-    specificPrompt = prompts.science;
-  else if (
-    normalizedCategory.includes("climate") ||
-    normalizedCategory.includes("environment")
-  )
-    specificPrompt = prompts.climate;
-  else if (
-    normalizedCategory.includes("culture") ||
-    normalizedCategory.includes("entertainment")
-  )
-    specificPrompt = prompts.culture;
-  else if (normalizedCategory.includes("politic"))
-    specificPrompt = prompts.politics;
-  else if (
-    normalizedCategory.includes("world") ||
-    normalizedCategory.includes("top")
-  )
-    specificPrompt = prompts.world;
+    // Fallback to hardcoded defaults if DB prompt not found
+    const prompts = {
+      world: `VIKTIGT för världsnyheter: Namnge länderna, städerna och nyckelpersonerna.`,
+      politics: `VIKTIGT för politiska nyheter: Namnge politiker, partier och specifika beslut.`,
+      sports: `VIKTIGT för sportnyheter: Inkludera exakta resultat och namn på lag/spelare.`,
+      tech: `VIKTIGT för tekniknyheter: Förklara tekniken enkelt, nämn produkter och företag.`,
+      business: `VIKTIGT för ekonominyheter: Inkludera siffror (belopp, procent) och företagsnamn.`,
+      science: `VIKTIGT för vetenskapsnyheter: Förklara upptäckten enkelt, nämn institutioner.`,
+      climate: `VIKTIGT för klimatnyheter: Ange siffror för temperatur/utsläpp, nämn avtal.`,
+      culture: `VIKTIGT för kulturnyheter: Namnge artister, verk och evenemang.`,
+      default: `Inkludera specifika namn, platser och datum. Var konkret.`,
+    };
 
-  return `${BASE_INSTRUCTIONS}\n\n${specificPrompt}`;
+    let specificPrompt = prompts.default;
+    if (normalizedCategory.includes("sport")) specificPrompt = prompts.sports;
+    else if (normalizedCategory.includes("tech")) specificPrompt = prompts.tech;
+    else if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) specificPrompt = prompts.business;
+    else if (normalizedCategory.includes("science")) specificPrompt = prompts.science;
+    else if (normalizedCategory.includes("climate") || normalizedCategory.includes("environment")) specificPrompt = prompts.climate;
+    else if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) specificPrompt = prompts.culture;
+    else if (normalizedCategory.includes("politic")) specificPrompt = prompts.politics;
+    else if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) specificPrompt = prompts.world;
+
+    return `${BASE_INSTRUCTIONS}\n\n${specificPrompt}`;
+  } catch (err) {
+    console.error("Error fetching prompt from DB, using fallback:", err);
+    return `${BASE_INSTRUCTIONS}\n\nInkludera specifika namn, platser och datum. Var konkret.`;
+  }
 }
 
 async function translateAndSummarize(title, content, category) {
