@@ -45,6 +45,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Initial load
                 await switchView('dashboard');
                 hideLogin();
+                // Fetch version without auth requirement (public endpoint) - or just use auth fetch
+                fetch('/api/health').then(r => r.json()).then(d => {
+                    if(d.version) document.getElementById('appVersion').textContent = `v${d.version}`;
+                }).catch(e => console.error(e));
             } catch (err) {
                 console.error('Init failed:', err);
                 showLogin();

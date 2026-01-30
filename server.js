@@ -113,6 +113,8 @@ const searchArticles = (articles, query) => {
  * GET /api/health
  * Health check endpoint
  */
+const packageJson = require('./package.json');
+
 app.get('/api/health', async (req, res) => {
   try {
     const sourcesCount = await db.select().from(rssSources);
@@ -120,7 +122,7 @@ app.get('/api/health', async (req, res) => {
       status: 'success',
       message: 'Global Intelligence News API is running',
       timestamp: new Date().toISOString(),
-      version: '1.2.6',
+      version: packageJson.version,
       sources: sourcesCount.length,
       backgroundWorker: 'active'
     });
