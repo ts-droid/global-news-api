@@ -1,11 +1,22 @@
 const OpenAI = require("openai");
 
-const openrouter = new OpenAI({
-  baseURL:
-    process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL ||
-    "https://openrouter.ai/api/v1",
-  apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+// Support both OpenRouter and DeepSeek directly
+// Priority: DEEPSEEK_API_KEY > AI_INTEGRATIONS_OPENROUTER_API_KEY
+const useDeepSeekDirect = !!process.env.DEEPSEEK_API_KEY;
+
+const aiClient = new OpenAI({
+  baseURL: useDeepSeekDirect
+    ? "https://api.deepseek.com"
+    : (process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1"),
+  apiKey: useDeepSeekDirect
+    ? process.env.DEEPSEEK_API_KEY
+    : process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
 });
+
+// Model name differs between OpenRouter and DeepSeek direct
+const AI_MODEL = useDeepSeekDirect ? "deepseek-chat" : "deepseek/deepseek-chat";
+
+console.log(`AI Service configured: ${useDeepSeekDirect ? 'DeepSeek Direct' : 'OpenRouter'}, Model: ${AI_MODEL}`);
 
 const BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
 1. Översätta nyhetsartiklar till flytande, naturlig svenska
@@ -78,16 +89,18 @@ function getCategoryPrompt(category) {
 }
 
 async function translateAndSummarize(title, content, category) {
-  if (!process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY) {
-    console.warn("AI_INTEGRATIONS_OPENROUTER_API_KEY not set, skipping AI translation");
+  const hasApiKey = process.env.DEEPSEEK_API_KEY || process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY;
+
+  if (!hasApiKey) {
+    console.warn("No AI API key configured (DEEPSEEK_API_KEY or AI_INTEGRATIONS_OPENROUTER_API_KEY), skipping translation");
     return { title, summary: content.substring(0, 300) };
   }
 
   try {
     const systemPrompt = getCategoryPrompt(category);
 
-    const response = await openrouter.chat.completions.create({
-      model: "deepseek/deepseek-chat",
+    const response = await aiClient.chat.completions.create({
+      model: AI_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         {
@@ -112,12 +125,14 @@ async function translateAndSummarize(title, content, category) {
 }
 
 async function explainTopic(title, summary, category) {
-  if (!process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY)
+  const hasApiKey = process.env.DEEPSEEK_API_KEY || process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY;
+
+  if (!hasApiKey)
     return "Inget AI-stöd konfigurerat.";
 
   try {
-    const response = await openrouter.chat.completions.create({
-      model: "deepseek/deepseek-chat",
+    const response = await aiClient.chat.completions.create({
+      model: AI_MODEL,
       messages: [
         {
           role: "system",
