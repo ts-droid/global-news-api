@@ -155,7 +155,26 @@ app.get('/api/news', async (req, res) => {
       const dbArticles = await query;
       
       if (dbArticles.length > 0) {
-        articles = dbArticles;
+        // Fetch sources for name mapping
+        const sources = await db.select().from(rssSources);
+        const sourceMap = new Map(sources.map(s => [s.code, s.name]));
+
+        articles = dbArticles.map(a => ({
+            id: a.articleHash, // Use hash as ID to match old format
+            title: a.title,
+            titleSv: a.titleSv,
+            summarySv: a.summarySv,
+            description: a.description,
+            link: a.link,
+            pubDate: a.pubDate.toISOString(),
+            source: sourceMap.get(a.sourceCode) || a.sourceCode,
+            category: a.category,
+            // Parse "4 min" -> 4
+            readingTime: parseInt(a.readingTime) || 2,
+            imageUrl: a.imageUrl,
+            isBreaking: false // DB schema doesn't have isBreaking yet, default false
+        }));
+        
         cache.set(cacheKey, articles);
       } else {
         // Fallback to fetch from sources if DB empty (cold start)

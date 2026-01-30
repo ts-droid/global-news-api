@@ -1,10 +1,14 @@
 #!/bin/bash
 
+# Get script directory to allow running from anywhere
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$DIR/../../"
+
 # Source directory (Antigravity scratch)
-SOURCE="GlobalNewsSwift/"
+SOURCE="$PROJECT_ROOT/GlobalNewsSwift/"
 
 # Target directory (User's project in Test folder)
-TARGET="../Test/Global_news/Global_news/GlobalNewsSwift/"
+TARGET="$PROJECT_ROOT/../Test/Global_news/Global_news/GlobalNewsSwift/"
 
 echo "Syncing files from $SOURCE to $TARGET..."
 
