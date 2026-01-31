@@ -386,10 +386,10 @@ app.get('/api/events', async (req, res) => {
           titleTranslated = cachedTrans.title;
           summaryTranslated = cachedTrans.summary;
           isTranslated = true;
-        } else if (index < 3) {
-          // Translate first 3 events synchronously for immediate display
+        } else if (index < 2) {
+          // Translate first 2 events synchronously for immediate display
           try {
-            const translated = await translateWithTimeout(e.title, e.summary, lang, 12000);
+            const translated = await translateWithTimeout(e.title, e.summary, lang, 15000);
             cache.set(translationCacheKey(e.id, lang), translated, 3600);
             titleTranslated = translated.title;
             summaryTranslated = translated.summary;
@@ -397,8 +397,15 @@ app.get('/api/events', async (req, res) => {
           } catch (err) {
             console.error(`Translation failed for event ${e.id}: ${err.message}`);
           }
+        } else {
+          // Queue background translation for remaining events
+          translateWithTimeout(e.title, e.summary, lang, 15000)
+            .then(translated => {
+              cache.set(translationCacheKey(e.id, lang), translated, 3600);
+              console.log(`Background translation cached for ${e.id}`);
+            })
+            .catch(() => {}); // Silently ignore failures
         }
-        // Skip rest - they'll be translated on next request when cached
       }
 
       // Get source names for this event
