@@ -270,9 +270,9 @@ app.get('/api/news', async (req, res) => {
  */
 app.get('/api/events', async (req, res) => {
   try {
-    const { limit = 20, offset = 0, category, lang = 'sv', nocache } = req.query;
+    const { limit = 15, offset = 0, category, lang = 'sv', nocache } = req.query;
     const { translateArticle } = require('./aiService');
-    const safeLimit = Math.min(parseInt(limit) || 20, 50);
+    const safeLimit = Math.min(parseInt(limit) || 15, 30); // Reduced for faster response
     const safeOffset = parseInt(offset) || 0;
 
     // Check cache first (skip if nocache=1)
@@ -371,7 +371,7 @@ app.get('/api/events', async (req, res) => {
     };
 
     const translatedEvents = [];
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = 3; // Reduced for faster response
 
     for (let i = 0; i < pageEvents.length; i += BATCH_SIZE) {
       const batch = pageEvents.slice(i, i + BATCH_SIZE);
@@ -383,12 +383,13 @@ app.get('/api/events', async (req, res) => {
 
         if (lang !== 'en') {
           try {
-            const translated = await translateWithTimeout(e.title, e.summary, lang);
+            const translated = await translateWithTimeout(e.title, e.summary, lang, 10000); // 10s timeout
             titleTranslated = translated.title;
             summaryTranslated = translated.summary;
             isTranslated = true;
           } catch (err) {
-            console.error(`Translation error for event ${e.id}:`, err.message);
+            // Return untranslated on timeout - client will cache and retry
+            console.error(`Translation skipped for event ${e.id}: ${err.message}`);
           }
         }
 
