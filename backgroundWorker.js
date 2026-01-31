@@ -30,7 +30,10 @@ async function processArticlesBatch(articlesToProcess, sources) {
     // Process batch in parallel
     const batchPromises = batch.map(async (article) => {
       try {
+        console.log(`  → Translating: "${article.title.substring(0, 50)}..."`);
         const aiResult = await translateAndSummarize(article.title, article.description, article.category);
+        console.log(`  ✓ Result: "${aiResult.title?.substring(0, 50)}..." (category: ${aiResult.category})`);
+        console.log(`    Was translated: ${aiResult.title !== article.title}`);
 
         // Calculate reading time from full content if available
         const wordCount = (article.description || '').split(/\s+/).length;
