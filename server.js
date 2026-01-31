@@ -386,10 +386,10 @@ app.get('/api/events', async (req, res) => {
           titleTranslated = cachedTrans.title;
           summaryTranslated = cachedTrans.summary;
           isTranslated = true;
-        } else if (index < 5) {
-          // Translate first 5 events synchronously for immediate display
+        } else if (index < 3) {
+          // Translate first 3 events synchronously for immediate display
           try {
-            const translated = await translateWithTimeout(e.title, e.summary, lang, 8000);
+            const translated = await translateWithTimeout(e.title, e.summary, lang, 12000);
             cache.set(translationCacheKey(e.id, lang), translated, 3600);
             titleTranslated = translated.title;
             summaryTranslated = translated.summary;
