@@ -22,7 +22,7 @@ const {
 } = require('./adminAuth');
 const { db } = require('./db');
 const { adminUsers, rssSources, aiPrompts, articles: articlesTable, newsEvents } = require('./db/schema');
-const { eq, desc } = require('drizzle-orm');
+const { eq, desc, inArray } = require('drizzle-orm');
 
 const swedishMockArticles = [
   {
@@ -322,6 +322,34 @@ app.get('/api/events', async (req, res) => {
     const pageEvents = allEvents.slice(safeOffset, safeOffset + safeLimit);
     const total = allEvents.length;
 
+    // Get source names for events (from articles table)
+    const eventIds = pageEvents.map(e => e.id);
+    const eventSources = {};
+
+    if (eventIds.length > 0) {
+      // Get primary articles for each event to get source names
+      const primaryArticles = await db.select({
+        eventId: articlesTable.eventId,
+        sourceCode: articlesTable.sourceCode,
+      }).from(articlesTable)
+        .where(inArray(articlesTable.eventId, eventIds));
+
+      // Group by eventId and get unique sources
+      for (const art of primaryArticles) {
+        if (!eventSources[art.eventId]) {
+          eventSources[art.eventId] = new Set();
+        }
+        eventSources[art.eventId].add(art.sourceCode);
+      }
+    }
+
+    // Get source names mapping
+    const allSources = await db.select({
+      code: rssSources.code,
+      name: rssSources.name,
+    }).from(rssSources);
+    const sourceNameMap = Object.fromEntries(allSources.map(s => [s.code, s.name]));
+
     // Translate events if needed (increased timeout for DeepSeek API)
     const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 15000) => {
       const startTime = Date.now();
@@ -360,10 +388,19 @@ app.get('/api/events', async (req, res) => {
           }
         }
 
-        // Source display: show count for now (sourceDetails will be added later)
-        const sourceDisplay = e.sourceCount === 1
-          ? '1 källa'
-          : `${e.sourceCount} källor`;
+        // Get source names for this event
+        const eventSourceCodes = eventSources[e.id] ? Array.from(eventSources[e.id]) : [];
+        const sourceNames = eventSourceCodes.map(code => sourceNameMap[code] || code);
+
+        // Source display: show name if 1 source, count if multiple
+        let sourceDisplay;
+        if (sourceNames.length === 1) {
+          sourceDisplay = sourceNames[0];
+        } else if (sourceNames.length > 1) {
+          sourceDisplay = `${sourceNames.length} källor`;
+        } else {
+          sourceDisplay = e.sourceCount === 1 ? '1 källa' : `${e.sourceCount} källor`;
+        }
 
         return {
           id: e.id,
