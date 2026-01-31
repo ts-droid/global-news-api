@@ -289,8 +289,19 @@ app.get('/api/events', async (req, res) => {
 
     console.log(`Fetching events (lang: ${lang}, limit: ${safeLimit}, offset: ${safeOffset})`);
 
-    // Build query for events
-    let query = db.select().from(newsEvents).orderBy(desc(newsEvents.lastUpdatedAt));
+    // Build query for events - select specific fields to handle missing source_details column
+    let query = db.select({
+      id: newsEvents.id,
+      title: newsEvents.title,
+      summary: newsEvents.summary,
+      category: newsEvents.category,
+      region: newsEvents.region,
+      isBreaking: newsEvents.isBreaking,
+      sourceCount: newsEvents.sourceCount,
+      firstReportedAt: newsEvents.firstReportedAt,
+      lastUpdatedAt: newsEvents.lastUpdatedAt,
+      createdAt: newsEvents.createdAt,
+    }).from(newsEvents).orderBy(desc(newsEvents.lastUpdatedAt));
     if (category) query = query.where(eq(newsEvents.category, category));
 
     const allEvents = await query;
@@ -349,18 +360,10 @@ app.get('/api/events', async (req, res) => {
           }
         }
 
-        // Parse source details
-        let sourceDetails = [];
-        try {
-          sourceDetails = e.sourceDetails ? JSON.parse(e.sourceDetails) : [];
-        } catch (err) {
-          sourceDetails = [];
-        }
-
-        // Create source names string (e.g., "BBC, CNN, SVT")
-        const sourceNames = sourceDetails.length > 0
-          ? sourceDetails.map(s => s.name).join(', ')
-          : `${e.sourceCount} ${e.sourceCount === 1 ? 'källa' : 'källor'}`;
+        // Source display: show count for now (sourceDetails will be added later)
+        const sourceDisplay = e.sourceCount === 1
+          ? '1 källa'
+          : `${e.sourceCount} källor`;
 
         return {
           id: e.id,
@@ -371,9 +374,8 @@ app.get('/api/events', async (req, res) => {
           pubDate: e.firstReportedAt ? e.firstReportedAt.toISOString() : new Date().toISOString(),
           lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
           createdAt: e.createdAt ? e.createdAt.toISOString() : new Date().toISOString(),
-          source: sourceNames,
+          source: sourceDisplay,
           sourceCount: e.sourceCount,
-          sourceDetails: sourceDetails, // Array with {name, url, pubDate}
           category: e.category || "general",
           region: e.region || "global",
           readingTime: "2 min",

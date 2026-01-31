@@ -58,8 +58,8 @@ const newsEvents = pgTable("news_events", {
   isBreaking: boolean("is_breaking").default(false).notNull(),
   sourceCount: integer("source_count").default(1).notNull(), // Number of articles about this event
 
-  // Source details (JSON array: [{name, url, pubDate}])
-  sourceDetails: text("source_details"), // JSON array of source info
+  // TODO: sourceDetails will be added after migration runs on Railway
+  // sourceDetails: text("source_details"), // JSON array: [{name, url, pubDate}]
 
   // Timestamps
   firstReportedAt: timestamp("first_reported_at").notNull(), // When first article was published
