@@ -2,7 +2,7 @@ const { db } = require('./db');
 const { rssSources, articles } = require('./db/schema');
 const { eq, desc } = require('drizzle-orm');
 const { fetchFromSources, deduplicateArticles, sortByDate } = require('./rssFetcher');
-const { translateAndSummarize } = require('./aiService');
+const { summarizeAndCategorize } = require('./aiService');
 const cache = require('./newsCache');
 
 let isRefreshing = false;
@@ -30,10 +30,9 @@ async function processArticlesBatch(articlesToProcess, sources) {
     // Process batch in parallel
     const batchPromises = batch.map(async (article) => {
       try {
-        console.log(`  → Translating: "${article.title.substring(0, 50)}..."`);
-        const aiResult = await translateAndSummarize(article.title, article.description, article.category);
+        console.log(`  → Summarizing: "${article.title.substring(0, 50)}..."`);
+        const aiResult = await summarizeAndCategorize(article.title, article.description, article.category);
         console.log(`  ✓ Result: "${aiResult.title?.substring(0, 50)}..." (category: ${aiResult.category})`);
-        console.log(`    Was translated: ${aiResult.title !== article.title}`);
 
         // Calculate reading time from full content if available
         const wordCount = (article.description || '').split(/\s+/).length;
@@ -43,19 +42,19 @@ async function processArticlesBatch(articlesToProcess, sources) {
           articleHash: article.id,
           sourceId: sources.find(s => s.code === article.sourceCode)?.id,
           sourceCode: article.sourceCode,
-          title: article.title,
+          title: aiResult.title || article.title, // AI-processed headline (original language)
           link: article.link,
-          description: article.description,
+          description: article.description, // Original description
           content: article.description,
           pubDate: new Date(article.pubDate),
           imageUrl: article.imageUrl,
           author: article.author,
-          category: aiResult.category || article.category, // Use AI-classified category
+          category: aiResult.category || article.category, // AI-classified category
           region: article.region,
           language: article.language,
-          isTranslated: true,
-          titleSv: aiResult.title,
-          summarySv: aiResult.summary,
+          isTranslated: false, // Not translated yet - will be translated on request
+          titleSv: null, // Will be filled when translated
+          summarySv: aiResult.summary, // AI summary (original language for now)
           readingTime: `${readingMinutes} min`,
           isBreaking: aiResult.isBreaking || false,
           updatedAt: new Date()

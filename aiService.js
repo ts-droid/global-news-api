@@ -13,99 +13,97 @@ const { eq, inArray } = require("drizzle-orm");
 // Valid categories for classification
 const VALID_CATEGORIES = ['world', 'politics', 'sports', 'tech', 'business', 'science', 'climate', 'culture'];
 
-// Fallback constant if DB is empty/fails
-const FALLBACK_BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
-1. Översätta nyhetsartiklar till flytande, naturlig svenska
-2. Sammanfatta innehållet i 2-3 koncisa stycken (100-150 ord totalt)
-3. Behålla en objektiv, journalistisk ton
-4. Extrahera ALLA specifika detaljer: namn, platser, siffror, datum
-5. KATEGORISERA artikeln i EN av dessa kategorier baserat på innehållet:
-   - world: Internationella nyheter, geopolitik, diplomati
-   - politics: Politik, val, regering, lagar
-   - sports: Sport, idrott, tävlingar, matcher
-   - tech: Teknik, IT, AI, smartphones, internet
-   - business: Ekonomi, finans, företag, börsen
-   - science: Vetenskap, forskning, medicin, rymden
-   - climate: Klimat, miljö, väder, naturkatastrofer
-   - culture: Kultur, musik, film, konst, underhållning
-6. AVGÖR om detta är en "Breaking News"-händelse (Extremt brådskande, stor påverkan, krig/katastrof/större politiska beslut).
+// STEP 1: Summarize and categorize (keep original language)
+const FALLBACK_SUMMARIZE_INSTRUCTIONS = `You are a professional news editor. Your task is to:
+1. Create a concise headline (keep the original language)
+2. Summarize the content in 2-3 paragraphs (100-150 words total, keep original language)
+3. Maintain an objective, journalistic tone
+4. Extract ALL specific details: names, places, numbers, dates
+5. CATEGORIZE the article into ONE of these categories based on content:
+   - world: International news, geopolitics, diplomacy
+   - politics: Politics, elections, government, laws
+   - sports: Sports, athletics, competitions, matches
+   - tech: Technology, IT, AI, smartphones, internet
+   - business: Economy, finance, companies, stock market
+   - science: Science, research, medicine, space
+   - climate: Climate, environment, weather, natural disasters
+   - culture: Culture, music, film, art, entertainment
+6. DETERMINE if this is a "Breaking News" event (extremely urgent, major impact, war/disaster/major political decisions).
 
-VIKTIGT:
-- Skriv ALDRIG vaga fraser som "en spelare", "två nationer", "flera länder" om du har namnen
-- Inkludera ALLTID specifika namn och siffror som finns i texten
-- Om artikeln saknar detaljer, skriv kortfattat vad som är känt
-- Välj den MEST passande kategorin baserat på artikelns huvudämne
+IMPORTANT:
+- NEVER write vague phrases like "a player", "two nations", "several countries" if you have the names
+- ALWAYS include specific names and numbers from the text
+- If the article lacks details, write briefly what is known
+- Choose the MOST fitting category based on the article's main topic
 
-Svara ALLTID i följande JSON-format (inget annat):
+ALWAYS respond in this JSON format (nothing else):
 {
-  "title": "Översatt rubrik på svenska",
-  "summary": "Sammanfattning på svenska i 2-3 stycken",
-  "category": "en av: world, politics, sports, tech, business, science, climate, culture",
+  "title": "Headline in original language",
+  "summary": "Summary in original language in 2-3 paragraphs",
+  "category": "one of: world, politics, sports, tech, business, science, climate, culture",
   "isBreaking": true/false
 }`;
 
-async function getCategoryPrompt(category) {
+/**
+ * Get category-specific prompt additions from DB
+ */
+async function getCategoryAdditions(category) {
   const normalizedCategory = (category || "default").toLowerCase();
 
   try {
-    // Fetch both 'base' and specific category prompt
     const prompts = await db
       .select()
       .from(aiPrompts)
       .where(inArray(aiPrompts.category, ["base", normalizedCategory]));
-    
-    const basePromptObj = prompts.find(p => p.category === 'base');
+
     const categoryPromptObj = prompts.find(p => p.category === normalizedCategory);
 
-    // Determine Base Instructions
-    const baseInstructions = (basePromptObj && basePromptObj.isActive) 
-      ? basePromptObj.prompt 
-      : FALLBACK_BASE_INSTRUCTIONS;
-
-    // Determine Specific Instructions
     if (categoryPromptObj && categoryPromptObj.isActive) {
-      return `${baseInstructions}\n\n${categoryPromptObj.prompt}`;
+      return categoryPromptObj.prompt;
     }
 
-    // Fallback to hardcoded defaults if specific DB prompt not found
-    const fallbackPrompts = {
-      world: `VIKTIGT för världsnyheter: Namnge länderna, städerna och nyckelpersonerna.`,
-      politics: `VIKTIGT för politiska nyheter: Namnge politiker, partier och specifika beslut.`,
-      sports: `VIKTIGT för sportnyheter: Inkludera exakta resultat och namn på lag/spelare.`,
-      tech: `VIKTIGT för tekniknyheter: Förklara tekniken enkelt, nämn produkter och företag.`,
-      business: `VIKTIGT för ekonominyheter: Inkludera siffror (belopp, procent) och företagsnamn.`,
-      science: `VIKTIGT för vetenskapsnyheter: Förklara upptäckten enkelt, nämn institutioner.`,
-      climate: `VIKTIGT för klimatnyheter: Ange siffror för temperatur/utsläpp, nämn avtal.`,
-      culture: `VIKTIGT för kulturnyheter: Namnge artister, verk och evenemang.`,
-      default: `Inkludera specifika namn, platser och datum. Var konkret.`,
+    // Fallback category-specific additions
+    const fallbackAdditions = {
+      world: `For world news: Name the countries, cities, and key people involved.`,
+      politics: `For political news: Name politicians, parties, and specific decisions.`,
+      sports: `For sports news: Include exact scores and names of teams/players.`,
+      tech: `For tech news: Explain the technology simply, name products and companies.`,
+      business: `For business news: Include numbers (amounts, percentages) and company names.`,
+      science: `For science news: Explain the discovery simply, name institutions.`,
+      climate: `For climate news: Include temperature/emission figures, name agreements.`,
+      culture: `For culture news: Name artists, works, and events.`,
+      default: `Include specific names, places, and dates. Be concrete.`,
     };
 
-    let specificPrompt = fallbackPrompts.default;
-    if (normalizedCategory.includes("sport")) specificPrompt = fallbackPrompts.sports;
-    else if (normalizedCategory.includes("tech")) specificPrompt = fallbackPrompts.tech;
-    else if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) specificPrompt = fallbackPrompts.business;
-    else if (normalizedCategory.includes("science")) specificPrompt = fallbackPrompts.science;
-    else if (normalizedCategory.includes("climate") || normalizedCategory.includes("environment")) specificPrompt = fallbackPrompts.climate;
-    else if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) specificPrompt = fallbackPrompts.culture;
-    else if (normalizedCategory.includes("politic")) specificPrompt = fallbackPrompts.politics;
-    else if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) specificPrompt = fallbackPrompts.world;
+    if (normalizedCategory.includes("sport")) return fallbackAdditions.sports;
+    if (normalizedCategory.includes("tech")) return fallbackAdditions.tech;
+    if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) return fallbackAdditions.business;
+    if (normalizedCategory.includes("science")) return fallbackAdditions.science;
+    if (normalizedCategory.includes("climate") || normalizedCategory.includes("environment")) return fallbackAdditions.climate;
+    if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) return fallbackAdditions.culture;
+    if (normalizedCategory.includes("politic")) return fallbackAdditions.politics;
+    if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) return fallbackAdditions.world;
 
-    return `${baseInstructions}\n\n${specificPrompt}`;
+    return fallbackAdditions.default;
   } catch (err) {
-    console.error("Error fetching prompt from DB, using fallback:", err);
-    return `${FALLBACK_BASE_INSTRUCTIONS}\n\nInkludera specifika namn, platser och datum. Var konkret.`;
+    console.error("Error fetching prompt from DB:", err);
+    return "Include specific names, places, and dates. Be concrete.";
   }
 }
 
-async function translateAndSummarize(title, content, category) {
+/**
+ * STEP 1: Summarize and categorize article (keeps original language)
+ * Called by backgroundWorker when new articles arrive
+ */
+async function summarizeAndCategorize(title, content, sourceCategory) {
   if (!apiConfig.deepseek.apiKey || apiConfig.deepseek.apiKey === "no-key") {
-    console.warn("⚠️ AI API Key not configured - skipping translation");
-    console.warn("   Set AI_INTEGRATIONS_DEEPSEEK_API_KEY in environment variables");
-    return { title, summary: content.substring(0, 300), category, isBreaking: false };
+    console.warn("⚠️ AI API Key not configured - skipping summarization");
+    return { title, summary: content.substring(0, 300), category: sourceCategory, isBreaking: false };
   }
 
   try {
-    const systemPrompt = await getCategoryPrompt(category);
+    const categoryAddition = await getCategoryAdditions(sourceCategory);
+    const systemPrompt = `${FALLBACK_SUMMARIZE_INSTRUCTIONS}\n\n${categoryAddition}`;
 
     const response = await openai.chat.completions.create({
       model: apiConfig.deepseek.model,
@@ -113,7 +111,7 @@ async function translateAndSummarize(title, content, category) {
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `Rubrik: ${title}\n\nInnehåll: ${content}`,
+          content: `Title: ${title}\n\nContent: ${content}`,
         },
       ],
       max_tokens: 600,
@@ -123,8 +121,8 @@ async function translateAndSummarize(title, content, category) {
 
     const parsed = JSON.parse(response.choices[0].message.content);
 
-    // Validate category - use AI suggestion if valid, otherwise keep original
-    let finalCategory = category;
+    // Validate category - use AI suggestion if valid, otherwise keep source category
+    let finalCategory = sourceCategory;
     if (parsed.category && VALID_CATEGORIES.includes(parsed.category.toLowerCase())) {
       finalCategory = parsed.category.toLowerCase();
     }
@@ -136,18 +134,90 @@ async function translateAndSummarize(title, content, category) {
       isBreaking: parsed.isBreaking || false
     };
   } catch (error) {
-    console.error("❌ AI Translation Error:", error.message);
-    if (error.response) {
-      console.error("   API Response Status:", error.response.status);
-      console.error("   API Response Data:", JSON.stringify(error.response.data || {}).substring(0, 200));
-    }
-    return { title, summary: content.substring(0, 300), category, isBreaking: false };
+    console.error("❌ AI Summarization Error:", error.message);
+    return { title, summary: content.substring(0, 300), category: sourceCategory, isBreaking: false };
   }
 }
 
+/**
+ * STEP 2: Translate article to target language
+ * Called when iOS app requests articles with a specific language
+ */
+async function translateArticle(title, summary, targetLanguage = 'sv') {
+  if (!apiConfig.deepseek.apiKey || apiConfig.deepseek.apiKey === "no-key") {
+    console.warn("⚠️ AI API Key not configured - skipping translation");
+    return { title, summary };
+  }
+
+  // Map language codes to full names
+  const languageNames = {
+    'sv': 'Swedish',
+    'en': 'English',
+    'de': 'German',
+    'fr': 'French',
+    'es': 'Spanish',
+    'no': 'Norwegian',
+    'da': 'Danish',
+    'fi': 'Finnish'
+  };
+
+  const langName = languageNames[targetLanguage] || 'Swedish';
+
+  try {
+    const systemPrompt = `You are a professional translator. Translate the following news headline and summary to ${langName}.
+
+IMPORTANT:
+- Translate to natural, fluent ${langName}
+- Keep all proper nouns, names, and numbers
+- Maintain the journalistic tone
+- Keep the same structure and length
+
+ALWAYS respond in this JSON format (nothing else):
+{
+  "title": "Translated headline in ${langName}",
+  "summary": "Translated summary in ${langName}"
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: apiConfig.deepseek.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Title: ${title}\n\nSummary: ${summary}`,
+        },
+      ],
+      max_tokens: 600,
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    });
+
+    const parsed = JSON.parse(response.choices[0].message.content);
+
+    return {
+      title: parsed.title || title,
+      summary: parsed.summary || summary
+    };
+  } catch (error) {
+    console.error("❌ AI Translation Error:", error.message);
+    return { title, summary };
+  }
+}
+
+/**
+ * Legacy function - now calls summarizeAndCategorize
+ * Kept for backwards compatibility
+ */
+async function translateAndSummarize(title, content, category) {
+  return summarizeAndCategorize(title, content, category);
+}
+
+/**
+ * Explain background of a topic
+ */
 async function explainTopic(title, summary, category) {
   if (!apiConfig.deepseek.apiKey)
-    return "Inget AI-stöd konfigurerat.";
+    return "AI support not configured.";
 
   try {
     const response = await openai.chat.completions.create({
@@ -155,26 +225,26 @@ async function explainTopic(title, summary, category) {
       messages: [
         {
           role: "system",
-          content: `Du är en journalist som förklarar bakgrund till nyheter på svenska. Skriv 3-4 korta meningar.`,
+          content: `You are a journalist explaining background to news. Write 3-4 short sentences.`,
         },
         {
           role: "user",
-          content: `Förklara bakgrunden: ${title} - ${summary} (${category})`,
+          content: `Explain the background: ${title} - ${summary} (${category})`,
         },
       ],
       temperature: 0.7,
       max_tokens: 300,
     });
 
-    return (
-      response.choices[0].message.content || "Kunde inte hämta förklaring."
-    );
+    return response.choices[0].message.content || "Could not fetch explanation.";
   } catch (error) {
-    return "Förklaring ej tillgänglig just nu.";
+    return "Explanation not available right now.";
   }
 }
 
 module.exports = {
-  translateAndSummarize,
+  summarizeAndCategorize,
+  translateArticle,
+  translateAndSummarize, // Legacy
   explainTopic,
 };
