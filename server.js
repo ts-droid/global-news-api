@@ -149,7 +149,8 @@ app.get('/api/news', async (req, res) => {
   try {
     const { limit = 20, offset = 0, category, region, lang = 'sv' } = req.query;
     const { translateArticle } = require('./aiService');
-    const safeLimit = Math.min(parseInt(limit) || 20, 50);
+    // Limit to 20 articles max to avoid timeout during translation
+    const safeLimit = Math.min(parseInt(limit) || 20, 20);
     const safeOffset = parseInt(offset) || 0;
 
     // Check cache first (with language-specific key)
@@ -183,48 +184,64 @@ app.get('/api/news', async (req, res) => {
     const pageArticles = allArticles.slice(safeOffset, safeOffset + safeLimit);
     const total = allArticles.length;
 
+    // Helper function to translate with timeout
+    const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 5000) => {
+      return Promise.race([
+        translateArticle(title, summary, targetLang),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Translation timeout')), timeoutMs))
+      ]);
+    };
+
     // Translate articles if needed (only the current page)
-    const translatedArticles = await Promise.all(pageArticles.map(async (a) => {
-      let titleTranslated = a.title;
-      let summaryTranslated = a.summarySv || a.description;
-      let isTranslated = false;
+    // Process in smaller batches to avoid overwhelming the API
+    const translatedArticles = [];
+    const BATCH_SIZE = 5;
 
-      // Only translate if:
-      // 1. Language is not English (original)
-      // 2. Article is not already in the target language
-      if (lang !== 'en') {
-        try {
-          const translated = await translateArticle(a.title, a.summarySv || a.description, lang);
-          titleTranslated = translated.title;
-          summaryTranslated = translated.summary;
-          isTranslated = true;
-        } catch (err) {
-          console.error(`Translation error for article ${a.id}:`, err.message);
-          // Keep original on error
+    for (let i = 0; i < pageArticles.length; i += BATCH_SIZE) {
+      const batch = pageArticles.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.all(batch.map(async (a) => {
+        let titleTranslated = a.title;
+        let summaryTranslated = a.summarySv || a.description;
+        let isTranslated = false;
+
+        // Only translate if language is not English
+        if (lang !== 'en') {
+          try {
+            const translated = await translateWithTimeout(a.title, a.summarySv || a.description, lang);
+            titleTranslated = translated.title;
+            summaryTranslated = translated.summary;
+            isTranslated = true;
+          } catch (err) {
+            console.error(`Translation error for article ${a.id}:`, err.message);
+            // Keep original on error/timeout
+          }
         }
-      }
 
-      return {
-        id: a.id,
-        articleHash: a.articleHash,
-        title: a.title || "No Title",
-        titleSv: titleTranslated,
-        summarySv: summaryTranslated,
-        description: a.description || "",
-        link: a.link || "#",
-        pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
-        createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
-        source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
-        sourceCode: a.sourceCode,
-        author: a.author || null,
-        category: a.category || "general",
-        region: a.region || "global",
-        readingTime: a.readingTime || "2 min",
-        imageUrl: a.imageUrl || null,
-        isBreaking: !!a.isBreaking,
-        isTranslated: isTranslated
-      };
-    }));
+        return {
+          id: a.id,
+          articleHash: a.articleHash,
+          title: a.title || "No Title",
+          titleSv: titleTranslated,
+          summarySv: summaryTranslated,
+          description: a.description || "",
+          link: a.link || "#",
+          pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
+          createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
+          source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
+          sourceCode: a.sourceCode,
+          author: a.author || null,
+          category: a.category || "general",
+          region: a.region || "global",
+          readingTime: a.readingTime || "2 min",
+          imageUrl: a.imageUrl || null,
+          isBreaking: !!a.isBreaking,
+          isTranslated: isTranslated
+        };
+      }));
+
+      translatedArticles.push(...batchResults);
+    }
 
     const result = {
       articles: translatedArticles,
