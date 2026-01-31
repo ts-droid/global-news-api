@@ -311,12 +311,20 @@ app.get('/api/events', async (req, res) => {
     const pageEvents = allEvents.slice(safeOffset, safeOffset + safeLimit);
     const total = allEvents.length;
 
-    // Translate events if needed
-    const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 5000) => {
-      return Promise.race([
-        translateArticle(title, summary, targetLang),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Translation timeout')), timeoutMs))
-      ]);
+    // Translate events if needed (increased timeout for DeepSeek API)
+    const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 15000) => {
+      const startTime = Date.now();
+      try {
+        const result = await Promise.race([
+          translateArticle(title, summary, targetLang),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Translation timeout')), timeoutMs))
+        ]);
+        console.log(`✓ Translation completed in ${Date.now() - startTime}ms`);
+        return result;
+      } catch (err) {
+        console.error(`✗ Translation failed after ${Date.now() - startTime}ms: ${err.message}`);
+        throw err;
+      }
     };
 
     const translatedEvents = [];
