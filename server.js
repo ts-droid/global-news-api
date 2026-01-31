@@ -327,19 +327,23 @@ app.get('/api/events', async (req, res) => {
     const eventSources = {};
 
     if (eventIds.length > 0) {
-      // Get primary articles for each event to get source names
-      const primaryArticles = await db.select({
+      // Get articles for each event to get source names
+      const linkedArticles = await db.select({
         eventId: articlesTable.eventId,
         sourceCode: articlesTable.sourceCode,
       }).from(articlesTable)
         .where(inArray(articlesTable.eventId, eventIds));
 
+      console.log(`Found ${linkedArticles.length} articles linked to ${eventIds.length} events`);
+
       // Group by eventId and get unique sources
-      for (const art of primaryArticles) {
-        if (!eventSources[art.eventId]) {
-          eventSources[art.eventId] = new Set();
+      for (const art of linkedArticles) {
+        if (art.eventId) {
+          if (!eventSources[art.eventId]) {
+            eventSources[art.eventId] = new Set();
+          }
+          eventSources[art.eventId].add(art.sourceCode);
         }
-        eventSources[art.eventId].add(art.sourceCode);
       }
     }
 
