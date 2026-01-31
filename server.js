@@ -373,8 +373,8 @@ app.get('/api/events', async (req, res) => {
     // Translation cache key
     const translationCacheKey = (id, lang) => `trans_${id}_${lang}`;
 
-    // Process events - use cached translations or return untranslated (fast!)
-    const translatedEvents = pageEvents.map(e => {
+    // Process events - translate first 5 synchronously, rest asynchronously
+    const translatedEvents = await Promise.all(pageEvents.map(async (e, index) => {
       let titleTranslated = e.title;
       let summaryTranslated = e.summary;
       let isTranslated = false;
@@ -386,14 +386,19 @@ app.get('/api/events', async (req, res) => {
           titleTranslated = cachedTrans.title;
           summaryTranslated = cachedTrans.summary;
           isTranslated = true;
-        } else {
-          // Queue translation in background (don't wait)
-          translateWithTimeout(e.title, e.summary, lang, 10000)
-            .then(translated => {
-              cache.set(translationCacheKey(e.id, lang), translated, 3600); // Cache 1 hour
-            })
-            .catch(err => console.error(`Background translation failed: ${err.message}`));
+        } else if (index < 5) {
+          // Translate first 5 events synchronously for immediate display
+          try {
+            const translated = await translateWithTimeout(e.title, e.summary, lang, 8000);
+            cache.set(translationCacheKey(e.id, lang), translated, 3600);
+            titleTranslated = translated.title;
+            summaryTranslated = translated.summary;
+            isTranslated = true;
+          } catch (err) {
+            console.error(`Translation failed for event ${e.id}: ${err.message}`);
+          }
         }
+        // Skip rest - they'll be translated on next request when cached
       }
 
       // Get source names for this event
@@ -429,7 +434,7 @@ app.get('/api/events', async (req, res) => {
         isTranslated: isTranslated,
         isEvent: true
       };
-    });
+    }));
 
     const result = {
       events: translatedEvents,
