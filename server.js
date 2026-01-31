@@ -270,17 +270,21 @@ app.get('/api/news', async (req, res) => {
  */
 app.get('/api/events', async (req, res) => {
   try {
-    const { limit = 20, offset = 0, category, lang = 'sv' } = req.query;
+    const { limit = 20, offset = 0, category, lang = 'sv', nocache } = req.query;
     const { translateArticle } = require('./aiService');
     const safeLimit = Math.min(parseInt(limit) || 20, 50);
     const safeOffset = parseInt(offset) || 0;
 
-    // Check cache first
+    // Check cache first (skip if nocache=1)
     const cacheKey = `events_${category || 'all'}_${lang}_${safeOffset}_${safeLimit}`;
-    let cachedEvents = cache.get(cacheKey);
-
-    if (cachedEvents) {
-      return res.json({ status: 'success', data: cachedEvents });
+    if (!nocache) {
+      let cachedEvents = cache.get(cacheKey);
+      if (cachedEvents) {
+        return res.json({ status: 'success', data: cachedEvents });
+      }
+    } else {
+      // Clear this cache key if nocache is set
+      cache.del(cacheKey);
     }
 
     console.log(`Fetching events (lang: ${lang}, limit: ${safeLimit}, offset: ${safeOffset})`);
