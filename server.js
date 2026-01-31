@@ -322,37 +322,45 @@ app.get('/api/events', async (req, res) => {
     const pageEvents = allEvents.slice(safeOffset, safeOffset + safeLimit);
     const total = allEvents.length;
 
-    // Get source names for events (from articles table)
+    // Get source details for events (from articles table)
     const eventIds = pageEvents.map(e => e.id);
-    const eventSources = {};
+    const eventSourceDetails = {}; // eventId -> [{name, url}]
 
     if (eventIds.length > 0) {
-      // Get articles for each event to get source names
+      // Get articles for each event to get source names and links
       const linkedArticles = await db.select({
         eventId: articlesTable.eventId,
         sourceCode: articlesTable.sourceCode,
+        link: articlesTable.link,
       }).from(articlesTable)
         .where(inArray(articlesTable.eventId, eventIds));
 
       console.log(`Found ${linkedArticles.length} articles linked to ${eventIds.length} events`);
 
-      // Group by eventId and get unique sources
+      // Get source names mapping
+      const allSources = await db.select({
+        code: rssSources.code,
+        name: rssSources.name,
+      }).from(rssSources);
+      const sourceNameMap = Object.fromEntries(allSources.map(s => [s.code, s.name]));
+
+      // Group by eventId and collect source details
       for (const art of linkedArticles) {
         if (art.eventId) {
-          if (!eventSources[art.eventId]) {
-            eventSources[art.eventId] = new Set();
+          if (!eventSourceDetails[art.eventId]) {
+            eventSourceDetails[art.eventId] = [];
           }
-          eventSources[art.eventId].add(art.sourceCode);
+          // Avoid duplicates by URL
+          const existingUrls = new Set(eventSourceDetails[art.eventId].map(s => s.url));
+          if (!existingUrls.has(art.link)) {
+            eventSourceDetails[art.eventId].push({
+              name: sourceNameMap[art.sourceCode] || art.sourceCode,
+              url: art.link
+            });
+          }
         }
       }
     }
-
-    // Get source names mapping
-    const allSources = await db.select({
-      code: rssSources.code,
-      name: rssSources.name,
-    }).from(rssSources);
-    const sourceNameMap = Object.fromEntries(allSources.map(s => [s.code, s.name]));
 
     // Translate events if needed (increased timeout for DeepSeek API)
     const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 15000) => {
@@ -408,16 +416,15 @@ app.get('/api/events', async (req, res) => {
         }
       }
 
-      // Get source names for this event
-      const eventSourceCodes = eventSources[e.id] ? Array.from(eventSources[e.id]) : [];
-      const sourceNames = eventSourceCodes.map(code => sourceNameMap[code] || code);
+      // Get source details for this event
+      const sourceDetails = eventSourceDetails[e.id] || [];
 
       // Source display: show name if 1 source, count if multiple
       let sourceDisplay;
-      if (sourceNames.length === 1) {
-        sourceDisplay = sourceNames[0];
-      } else if (sourceNames.length > 1) {
-        sourceDisplay = `${sourceNames.length} källor`;
+      if (sourceDetails.length === 1) {
+        sourceDisplay = sourceDetails[0].name;
+      } else if (sourceDetails.length > 1) {
+        sourceDisplay = `${sourceDetails.length} källor`;
       } else {
         sourceDisplay = e.sourceCount === 1 ? '1 källa' : `${e.sourceCount} källor`;
       }
@@ -432,7 +439,8 @@ app.get('/api/events', async (req, res) => {
         lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
         createdAt: e.createdAt ? e.createdAt.toISOString() : new Date().toISOString(),
         source: sourceDisplay,
-        sourceCount: e.sourceCount,
+        sourceCount: sourceDetails.length || e.sourceCount,
+        sourceDetails: sourceDetails, // Array med {name, url} för iOS
         category: e.category || "general",
         region: e.region || "global",
         readingTime: "2 min",
