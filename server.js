@@ -1099,6 +1099,156 @@ app.post('/api/admin/sources', authenticateAdmin, async (req, res) => {
   }
 });
 
+// =============================================================================
+// PUSH NOTIFICATION ENDPOINTS
+// =============================================================================
+
+const pushService = require('./pushService');
+
+/**
+ * POST /api/devices/register
+ * Register or update a device for push notifications
+ */
+app.post('/api/devices/register', async (req, res) => {
+  try {
+    const { token, platform = 'ios', notifyBreaking = true, preferredLanguage = 'sv', focusCountries } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Device token is required'
+      });
+    }
+
+    await pushService.registerDevice(token, platform, {
+      notifyBreaking,
+      preferredLanguage,
+      focusCountries
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Device registered successfully'
+    });
+  } catch (error) {
+    console.error('Device registration error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/devices/unregister
+ * Unregister a device from push notifications
+ */
+app.delete('/api/devices/unregister', async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Device token is required'
+      });
+    }
+
+    await pushService.unregisterDevice(token);
+
+    res.json({
+      status: 'success',
+      message: 'Device unregistered successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * PUT /api/devices/preferences
+ * Update device notification preferences
+ */
+app.put('/api/devices/preferences', async (req, res) => {
+  try {
+    const { token, notifyBreaking, preferredLanguage, focusCountries } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Device token is required'
+      });
+    }
+
+    await pushService.updateDevicePreferences(token, {
+      notifyBreaking,
+      preferredLanguage,
+      focusCountries
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Preferences updated successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/admin/push/stats
+ * Get push notification statistics (admin only)
+ */
+app.get('/api/admin/push/stats', authenticateAdmin, async (req, res) => {
+  try {
+    const stats = await pushService.getDeviceStats();
+    res.json({
+      status: 'success',
+      data: stats
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/admin/push/send
+ * Send a custom push notification (admin only)
+ */
+app.post('/api/admin/push/send', authenticateAdmin, async (req, res) => {
+  try {
+    const { title, body, data = {} } = req.body;
+
+    if (!title || !body) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Title and body are required'
+      });
+    }
+
+    const result = await pushService.sendCustomPush(title, body, data);
+
+    res.json({
+      status: 'success',
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({

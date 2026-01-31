@@ -149,6 +149,27 @@ const deviceTokens = pgTable("device_tokens", {
   lastUsedAt: timestamp("last_used_at").defaultNow().notNull(),
 });
 
+// Server Settings - Configurable server parameters
+const serverSettings = pgTable("server_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: varchar("key", { length: 50 }).unique().notNull(),
+  value: text("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Translation Languages - Which languages to pre-translate
+const translationLanguages = pgTable("translation_languages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: varchar("code", { length: 5 }).unique().notNull(), // sv, no, da, fi, de, es, fr
+  name: varchar("name", { length: 50 }).notNull(), // Swedish, Norwegian, etc.
+  nativeName: varchar("native_name", { length: 50 }).notNull(), // Svenska, Norsk, etc.
+  isActive: boolean("is_active").default(false).notNull(), // Only active languages are pre-translated
+  priority: integer("priority").default(10).notNull(), // Lower = higher priority for translation
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 module.exports = {
   adminUsers,
   rssSources,
@@ -159,4 +180,6 @@ module.exports = {
   eventTags,
   eventTranslations,
   deviceTokens,
+  serverSettings,
+  translationLanguages,
 };

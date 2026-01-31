@@ -1,9 +1,10 @@
 const { db } = require('./db');
-const { rssSources, articles, newsEvents, tags, eventTags, eventTranslations } = require('./db/schema');
-const { eq, desc, gte, and, isNull, notInArray } = require('drizzle-orm');
+const { rssSources, articles, newsEvents, tags, eventTags, eventTranslations, serverSettings, translationLanguages } = require('./db/schema');
+const { eq, desc, gte, and, isNull, notInArray, lt, inArray } = require('drizzle-orm');
 const { fetchFromSources, deduplicateArticles, sortByDate } = require('./rssFetcher');
 const { summarizeAndCategorize, matchArticleToEvent, updateEventSummary, extractEntities, translateArticle, VALID_COUNTRY_CODES } = require('./aiService');
 const cache = require('./newsCache');
+const { sendBreakingNewsPush } = require('./pushService');
 
 let isRefreshing = false;
 
@@ -130,6 +131,18 @@ async function createEvent(article, aiResult) {
     console.log(`  🏷️ Saved ${(entities.people?.length || 0) + (entities.places?.length || 0) + (entities.organizations?.length || 0) + (entities.topics?.length || 0)} tags`);
   } catch (error) {
     console.warn(`  ⚠️ Failed to extract entities: ${error.message}`);
+  }
+
+  // Send push notification for breaking news
+  if (newEvent.isBreaking) {
+    try {
+      console.log(`  📱 Sending breaking news push for: "${newEvent.title?.substring(0, 40)}..."`);
+      sendBreakingNewsPush(newEvent)
+        .then(result => console.log(`  📱 Push result: ${result.sent} sent, ${result.failed || 0} failed`))
+        .catch(err => console.warn(`  ⚠️ Push failed: ${err.message}`));
+    } catch (error) {
+      console.warn(`  ⚠️ Failed to send push: ${error.message}`);
+    }
   }
 
   return newEvent;
@@ -386,86 +399,186 @@ async function updateCache(sources) {
 }
 
 /**
- * Pre-translate recent events to Swedish
- * Runs after main refresh to ensure all events have Swedish translations
+ * Get a server setting value from database
  */
-async function preTranslateToSwedish() {
-  const targetLang = 'sv';
+async function getServerSetting(key, defaultValue) {
+  try {
+    const [setting] = await db.select()
+      .from(serverSettings)
+      .where(eq(serverSettings.key, key))
+      .limit(1);
+    return setting ? setting.value : defaultValue;
+  } catch (error) {
+    console.warn(`Failed to get setting ${key}, using default: ${defaultValue}`);
+    return defaultValue;
+  }
+}
+
+/**
+ * Get active translation languages from database
+ */
+async function getActiveLanguages() {
+  try {
+    const languages = await db.select()
+      .from(translationLanguages)
+      .where(eq(translationLanguages.isActive, true))
+      .orderBy(translationLanguages.priority);
+    return languages.map(l => l.code);
+  } catch (error) {
+    console.warn('Failed to get active languages, defaulting to Swedish');
+    return ['sv'];
+  }
+}
+
+/**
+ * Cleanup old events based on retention settings
+ * Removes events older than retention_hours from database
+ */
+async function cleanupOldEvents() {
+  try {
+    const retentionHours = parseInt(await getServerSetting('retention_hours', '72'));
+    const cutoffDate = new Date(Date.now() - retentionHours * 60 * 60 * 1000);
+
+    console.log(`🧹 Starting cleanup of events older than ${retentionHours} hours (before ${cutoffDate.toISOString()})...`);
+
+    // Get events to delete
+    const oldEvents = await db.select({ id: newsEvents.id })
+      .from(newsEvents)
+      .where(lt(newsEvents.lastUpdatedAt, cutoffDate));
+
+    if (oldEvents.length === 0) {
+      console.log('✅ No old events to clean up');
+      return;
+    }
+
+    const eventIds = oldEvents.map(e => e.id);
+    console.log(`📦 Found ${eventIds.length} events to delete`);
+
+    // Delete related data first (cascade should handle this, but being explicit)
+    // 1. Delete translations for these events
+    await db.delete(eventTranslations)
+      .where(inArray(eventTranslations.eventId, eventIds));
+
+    // 2. Delete event-tag links
+    await db.delete(eventTags)
+      .where(inArray(eventTags.eventId, eventIds));
+
+    // 3. Delete articles linked to these events
+    await db.delete(articles)
+      .where(inArray(articles.eventId, eventIds));
+
+    // 4. Delete the events themselves
+    const deleted = await db.delete(newsEvents)
+      .where(inArray(newsEvents.id, eventIds))
+      .returning({ id: newsEvents.id });
+
+    console.log(`✅ Cleanup complete: Deleted ${deleted.length} old events and related data`);
+
+    // Also clean up orphaned tags (tags not linked to any event)
+    const orphanedTags = await db.execute(sql`
+      DELETE FROM tags
+      WHERE id NOT IN (SELECT DISTINCT tag_id FROM event_tags)
+      RETURNING id
+    `);
+
+    if (orphanedTags.rowCount > 0) {
+      console.log(`  🏷️ Also removed ${orphanedTags.rowCount} orphaned tags`);
+    }
+
+  } catch (error) {
+    console.error('Cleanup error:', error.message);
+  }
+}
+
+/**
+ * Pre-translate recent events to all active languages
+ * Reads active languages from translation_languages table
+ */
+async function preTranslateToActiveLanguages() {
   const BATCH_SIZE = 5;
-  const MAX_EVENTS = 30; // Only translate most recent 30 events
 
   try {
-    console.log('🌐 Starting pre-translation to Swedish...');
+    // Get settings from database
+    const preTranslationEnabled = await getServerSetting('pre_translation_enabled', 'true');
+    if (preTranslationEnabled !== 'true') {
+      console.log('🌐 Pre-translation is disabled in settings');
+      return;
+    }
 
-    // Get recent events that don't have Swedish translations
-    const recentEventIds = await db.select({ id: newsEvents.id })
+    const maxEvents = parseInt(await getServerSetting('max_events_to_translate', '30'));
+    const activeLanguages = await getActiveLanguages();
+
+    if (activeLanguages.length === 0) {
+      console.log('🌐 No active languages configured for pre-translation');
+      return;
+    }
+
+    console.log(`🌐 Starting pre-translation to: ${activeLanguages.join(', ')} (max ${maxEvents} events per language)...`);
+
+    // Get recent events
+    const recentEvents = await db.select()
       .from(newsEvents)
       .orderBy(desc(newsEvents.lastUpdatedAt))
-      .limit(MAX_EVENTS);
+      .limit(maxEvents);
 
-    if (recentEventIds.length === 0) {
+    if (recentEvents.length === 0) {
       console.log('No events to translate');
       return;
     }
 
-    const eventIdList = recentEventIds.map(e => e.id);
+    // Process each language
+    for (const targetLang of activeLanguages) {
+      console.log(`\n  📖 Processing language: ${targetLang}`);
 
-    // Find which events already have Swedish translations
-    const existingTranslations = await db.select({ eventId: eventTranslations.eventId })
-      .from(eventTranslations)
-      .where(and(
-        eq(eventTranslations.language, targetLang),
-        // Only check events in our list
-      ));
+      // Find which events already have translations for this language
+      const existingTranslations = await db.select({ eventId: eventTranslations.eventId })
+        .from(eventTranslations)
+        .where(eq(eventTranslations.language, targetLang));
 
-    const translatedEventIds = new Set(existingTranslations.map(t => t.eventId));
+      const translatedEventIds = new Set(existingTranslations.map(t => t.eventId));
 
-    // Filter to events that need translation
-    const eventsNeedingTranslation = [];
-    for (const id of eventIdList) {
-      if (!translatedEventIds.has(id)) {
-        const [event] = await db.select().from(newsEvents).where(eq(newsEvents.id, id));
-        if (event) {
-          eventsNeedingTranslation.push(event);
+      // Filter to events that need translation
+      const eventsNeedingTranslation = recentEvents.filter(e => !translatedEventIds.has(e.id));
+
+      if (eventsNeedingTranslation.length === 0) {
+        console.log(`  ✅ All recent events already have ${targetLang} translations`);
+        continue;
+      }
+
+      console.log(`  📝 ${eventsNeedingTranslation.length} events need ${targetLang} translation`);
+
+      // Translate in batches
+      let translatedCount = 0;
+      for (let i = 0; i < eventsNeedingTranslation.length; i += BATCH_SIZE) {
+        const batch = eventsNeedingTranslation.slice(i, i + BATCH_SIZE);
+
+        await Promise.all(batch.map(async (event) => {
+          try {
+            const translated = await translateArticle(event.title, event.summary, targetLang);
+
+            await db.insert(eventTranslations).values({
+              eventId: event.id,
+              language: targetLang,
+              title: translated.title,
+              summary: translated.summary,
+            }).onConflictDoNothing();
+
+            translatedCount++;
+          } catch (err) {
+            console.warn(`    ✗ Failed to translate event ${event.id}: ${err.message}`);
+          }
+        }));
+
+        // Small delay between batches
+        if (i + BATCH_SIZE < eventsNeedingTranslation.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
+
+      console.log(`  ✅ Translated ${translatedCount} events to ${targetLang}`);
     }
 
-    if (eventsNeedingTranslation.length === 0) {
-      console.log('✅ All recent events already have Swedish translations');
-      return;
-    }
-
-    console.log(`📝 Found ${eventsNeedingTranslation.length} events needing Swedish translation`);
-
-    // Translate in batches
-    for (let i = 0; i < eventsNeedingTranslation.length; i += BATCH_SIZE) {
-      const batch = eventsNeedingTranslation.slice(i, i + BATCH_SIZE);
-
-      await Promise.all(batch.map(async (event) => {
-        try {
-          const translated = await translateArticle(event.title, event.summary, targetLang);
-
-          await db.insert(eventTranslations).values({
-            eventId: event.id,
-            language: targetLang,
-            title: translated.title,
-            summary: translated.summary,
-          }).onConflictDoNothing();
-
-          console.log(`  ✓ Translated: "${event.title?.substring(0, 40)}..."`);
-        } catch (err) {
-          console.warn(`  ✗ Failed to translate event ${event.id}: ${err.message}`);
-        }
-      }));
-
-      // Small delay between batches
-      if (i + BATCH_SIZE < eventsNeedingTranslation.length) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
-
-    console.log(`✅ Pre-translation complete: ${eventsNeedingTranslation.length} events translated`);
+    console.log(`\n✅ Pre-translation complete for all active languages`);
   } catch (error) {
     console.error('Pre-translation error:', error.message);
   }
@@ -474,21 +587,38 @@ async function preTranslateToSwedish() {
 /**
  * Start the background worker
  */
-function startBackgroundWorker(intervalMs = REFRESH_INTERVAL_MS) {
+async function startBackgroundWorker(intervalMs = REFRESH_INTERVAL_MS) {
   console.log(`Starting background worker with ${intervalMs/1000/60} minute interval`);
+
+  // Run initial refresh
   refreshNews();
   setInterval(refreshNews, intervalMs);
 
-  // Run pre-translation 2 minutes after startup, then every 10 minutes
+  // Schedule pre-translation: 2 minutes after startup, then every 10 minutes
   setTimeout(() => {
-    preTranslateToSwedish();
-    setInterval(preTranslateToSwedish, 10 * 60 * 1000);
+    preTranslateToActiveLanguages();
+    setInterval(preTranslateToActiveLanguages, 10 * 60 * 1000);
   }, 2 * 60 * 1000);
+
+  // Schedule cleanup: 5 minutes after startup, then based on cleanup_interval_hours setting
+  setTimeout(async () => {
+    await cleanupOldEvents();
+
+    // Get cleanup interval from settings (default 6 hours)
+    const cleanupIntervalHours = parseInt(await getServerSetting('cleanup_interval_hours', '6'));
+    const cleanupIntervalMs = cleanupIntervalHours * 60 * 60 * 1000;
+
+    console.log(`🧹 Cleanup job scheduled to run every ${cleanupIntervalHours} hours`);
+    setInterval(cleanupOldEvents, cleanupIntervalMs);
+  }, 5 * 60 * 1000);
 }
 
 module.exports = {
   startBackgroundWorker,
   refreshNews,
   updateCache,
-  preTranslateToSwedish
+  preTranslateToActiveLanguages,
+  cleanupOldEvents,
+  getServerSetting,
+  getActiveLanguages,
 };
