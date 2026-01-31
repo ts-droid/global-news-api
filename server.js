@@ -21,8 +21,8 @@ const {
   verify2FA 
 } = require('./adminAuth');
 const { db } = require('./db');
-const { adminUsers, rssSources, aiPrompts, articles: articlesTable, newsEvents } = require('./db/schema');
-const { eq, desc, inArray } = require('drizzle-orm');
+const { adminUsers, rssSources, aiPrompts, articles: articlesTable, newsEvents, tags, eventTags } = require('./db/schema');
+const { eq, desc, inArray, and } = require('drizzle-orm');
 
 const swedishMockArticles = [
   {
@@ -362,6 +362,52 @@ app.get('/api/events', async (req, res) => {
       }
     }
 
+    // Fetch tags for events
+    const eventTagsMap = {}; // eventId -> [{name, type, countryCode}]
+    const eventCountryCodes = {}; // eventId -> [countryCodes]
+
+    if (eventIds.length > 0) {
+      try {
+        // Get all tags linked to these events
+        const linkedTags = await db.select({
+          eventId: eventTags.eventId,
+          tagName: tags.name,
+          tagType: tags.type,
+          countryCode: tags.countryCode,
+        })
+        .from(eventTags)
+        .innerJoin(tags, eq(eventTags.tagId, tags.id))
+        .where(inArray(eventTags.eventId, eventIds));
+
+        // Group tags by eventId
+        for (const row of linkedTags) {
+          if (!eventTagsMap[row.eventId]) {
+            eventTagsMap[row.eventId] = [];
+            eventCountryCodes[row.eventId] = [];
+          }
+          eventTagsMap[row.eventId].push({
+            name: row.tagName,
+            type: row.tagType,
+            countryCode: row.countryCode || null,
+          });
+          // Collect country codes
+          if (row.countryCode) {
+            eventCountryCodes[row.eventId].push(row.countryCode);
+          }
+        }
+
+        // Dedupe country codes
+        for (const eventId of Object.keys(eventCountryCodes)) {
+          eventCountryCodes[eventId] = [...new Set(eventCountryCodes[eventId])];
+        }
+
+        console.log(`Found tags for ${Object.keys(eventTagsMap).length} events`);
+      } catch (err) {
+        console.warn(`Failed to fetch tags: ${err.message}`);
+        // Continue without tags if the tables don't exist yet
+      }
+    }
+
     // Translate events if needed (increased timeout for DeepSeek API)
     const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 15000) => {
       const startTime = Date.now();
@@ -429,6 +475,10 @@ app.get('/api/events', async (req, res) => {
         sourceDisplay = e.sourceCount === 1 ? '1 källa' : `${e.sourceCount} källor`;
       }
 
+      // Get tags for this event
+      const eventTagsList = eventTagsMap[e.id] || [];
+      const countryCodes = eventCountryCodes[e.id] || [];
+
       return {
         id: e.id,
         title: e.title,
@@ -441,6 +491,8 @@ app.get('/api/events', async (req, res) => {
         source: sourceDisplay,
         sourceCount: sourceDetails.length || e.sourceCount,
         sourceDetails: sourceDetails, // Array med {name, url} för iOS
+        tags: eventTagsList, // Array med {name, type, countryCode} för iOS
+        countryCodes: countryCodes, // Aggregerade landskoder för filtrering
         category: e.category || "general",
         region: e.region || "global",
         readingTime: "2 min",

@@ -220,6 +220,115 @@ async function translateAndSummarize(title, content, category) {
   return summarizeAndCategorize(title, content, category);
 }
 
+// Valid ISO 3166-1 alpha-2 country codes for validation
+const VALID_COUNTRY_CODES = new Set([
+  'SE', 'NO', 'DK', 'FI', 'IS', // Nordic
+  'GB', 'IE', 'DE', 'FR', 'ES', 'IT', 'PT', 'NL', 'BE', 'AT', 'CH', 'PL', 'CZ', 'HU', 'RO', 'BG', 'GR', 'UA', 'RU', // Europe
+  'US', 'CA', 'MX', 'BR', 'AR', 'CL', 'CO', 'PE', 'VE', // Americas
+  'CN', 'JP', 'KR', 'IN', 'ID', 'TH', 'VN', 'PH', 'MY', 'SG', 'TW', 'HK', 'PK', 'BD', 'NP', 'LK', // Asia
+  'AU', 'NZ', // Oceania
+  'ZA', 'EG', 'NG', 'KE', 'ET', 'GH', 'TZ', 'MA', 'DZ', 'TN', // Africa
+  'IL', 'SA', 'AE', 'IR', 'IQ', 'TR', 'SY', 'JO', 'LB', 'QA', 'KW', 'OM', 'YE', 'AF', // Middle East
+]);
+
+/**
+ * Extract named entities from article title and summary
+ * Returns: { people: [], places: [], organizations: [], topics: [] }
+ * Place tags include ISO country codes for filtering
+ */
+async function extractEntities(title, summary, category = 'general') {
+  if (!apiConfig.deepseek.apiKey || apiConfig.deepseek.apiKey === "no-key") {
+    console.warn("⚠️ AI API Key not configured - skipping entity extraction");
+    return { people: [], places: [], organizations: [], topics: [] };
+  }
+
+  // Get category-specific extraction hints
+  const categoryHints = {
+    sports: `Focus on: players, teams, coaches, tournaments, venues, leagues.`,
+    politics: `Focus on: politicians, parties, government officials, political organizations, countries involved.`,
+    business: `Focus on: companies, CEOs, investors, stock exchanges, industries.`,
+    tech: `Focus on: tech companies, founders, products, technologies, research institutions.`,
+    science: `Focus on: researchers, universities, research institutions, scientific concepts.`,
+    climate: `Focus on: environmental organizations, scientists, affected regions, climate phenomena.`,
+    culture: `Focus on: artists, performers, directors, venues, awards, cultural institutions.`,
+    world: `Focus on: countries, leaders, international organizations, cities involved.`,
+    default: `Focus on: key people, locations, organizations, and main topics.`
+  };
+
+  const hint = categoryHints[category?.toLowerCase()] || categoryHints.default;
+
+  try {
+    const systemPrompt = `You are a news analyst extracting named entities from articles.
+
+Extract 6-10 of the MOST IMPORTANT entities from this news article.
+
+${hint}
+
+CRITICAL RULES FOR PLACES:
+- For EVERY place (city, country, region), include the ISO 3166-1 alpha-2 country code in parentheses
+- Format: "Place Name (CC)" where CC is the 2-letter country code
+- Examples: "London (GB)", "New Delhi (IN)", "Washington D.C. (US)", "Beijing (CN)", "Stockholm (SE)"
+- For countries, use: "United Kingdom (GB)", "United States (US)", "India (IN)", etc.
+- If a place spans multiple countries, list the primary country
+
+RULES:
+- Only include entities that are ACTUALLY mentioned or clearly implied
+- Use full names for people when available
+- Include only the most relevant 6-10 entities total
+- Topics should be general themes, not specific events
+
+Return ONLY valid JSON in this exact format:
+{
+  "people": ["Full Name 1", "Full Name 2"],
+  "places": ["City (CC)", "Country (CC)"],
+  "organizations": ["Org 1", "Org 2"],
+  "topics": ["topic1", "topic2"]
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: apiConfig.deepseek.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Title: ${title}\n\nSummary: ${summary}` }
+      ],
+      max_tokens: 400,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+    });
+
+    const parsed = JSON.parse(response.choices[0].message.content);
+
+    // Validate and normalize the response
+    const result = {
+      people: Array.isArray(parsed.people) ? parsed.people.slice(0, 5) : [],
+      places: Array.isArray(parsed.places) ? parsed.places.slice(0, 5) : [],
+      organizations: Array.isArray(parsed.organizations) ? parsed.organizations.slice(0, 3) : [],
+      topics: Array.isArray(parsed.topics) ? parsed.topics.slice(0, 3) : [],
+    };
+
+    // Extract and validate country codes from places
+    result.countryCodes = [];
+    result.places = result.places.map(place => {
+      // Extract country code from format "Place Name (CC)"
+      const match = place.match(/\(([A-Z]{2})\)$/);
+      if (match && VALID_COUNTRY_CODES.has(match[1])) {
+        result.countryCodes.push(match[1]);
+      }
+      return place;
+    });
+
+    // Dedupe country codes
+    result.countryCodes = [...new Set(result.countryCodes)];
+
+    console.log(`🏷️ Extracted entities: ${result.people.length} people, ${result.places.length} places, ${result.organizations.length} orgs, ${result.topics.length} topics, ${result.countryCodes.length} countries`);
+
+    return result;
+  } catch (error) {
+    console.error("❌ Entity extraction error:", error.message);
+    return { people: [], places: [], organizations: [], topics: [], countryCodes: [] };
+  }
+}
+
 /**
  * Explain background of a topic
  */
@@ -367,7 +476,9 @@ module.exports = {
   summarizeAndCategorize,
   translateArticle,
   translateAndSummarize, // Legacy
+  extractEntities,
   explainTopic,
   matchArticleToEvent,
   updateEventSummary,
+  VALID_COUNTRY_CODES,
 };

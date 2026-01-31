@@ -1,8 +1,8 @@
 const { db } = require('./db');
-const { rssSources, articles, newsEvents } = require('./db/schema');
-const { eq, desc, gte } = require('drizzle-orm');
+const { rssSources, articles, newsEvents, tags, eventTags } = require('./db/schema');
+const { eq, desc, gte, and } = require('drizzle-orm');
 const { fetchFromSources, deduplicateArticles, sortByDate } = require('./rssFetcher');
-const { summarizeAndCategorize, matchArticleToEvent, updateEventSummary } = require('./aiService');
+const { summarizeAndCategorize, matchArticleToEvent, updateEventSummary, extractEntities, VALID_COUNTRY_CODES } = require('./aiService');
 const cache = require('./newsCache');
 
 let isRefreshing = false;
@@ -27,6 +27,84 @@ async function getRecentEvents() {
 }
 
 /**
+ * Extract country code from place tag like "London (GB)" -> "GB"
+ */
+function extractCountryCode(placeName) {
+  const match = placeName.match(/\(([A-Z]{2})\)$/);
+  if (match && VALID_COUNTRY_CODES.has(match[1])) {
+    return match[1];
+  }
+  return null;
+}
+
+/**
+ * Save extracted entities as tags and link them to an event
+ */
+async function saveEventTags(eventId, entities) {
+  if (!entities || !eventId) return;
+
+  const tagTypes = [
+    { type: 'person', items: entities.people || [] },
+    { type: 'place', items: entities.places || [] },
+    { type: 'organization', items: entities.organizations || [] },
+    { type: 'topic', items: entities.topics || [] },
+  ];
+
+  for (const { type, items } of tagTypes) {
+    for (const name of items) {
+      if (!name || name.length < 2) continue;
+
+      try {
+        // Extract country code for place tags
+        const countryCode = type === 'place' ? extractCountryCode(name) : null;
+        const normalizedName = name.toLowerCase().replace(/\s*\([A-Z]{2}\)$/, '').trim();
+
+        // Upsert tag (find existing or create new)
+        let [existingTag] = await db
+          .select()
+          .from(tags)
+          .where(and(
+            eq(tags.normalizedName, normalizedName),
+            eq(tags.type, type)
+          ))
+          .limit(1);
+
+        let tagId;
+        if (existingTag) {
+          tagId = existingTag.id;
+          // Update country code if we have a better one
+          if (countryCode && !existingTag.countryCode) {
+            await db.update(tags)
+              .set({ countryCode })
+              .where(eq(tags.id, tagId));
+          }
+        } else {
+          // Create new tag
+          const [newTag] = await db.insert(tags).values({
+            name: name.replace(/\s*\([A-Z]{2}\)$/, '').trim(), // Store clean name
+            type,
+            normalizedName,
+            countryCode,
+          }).returning();
+          tagId = newTag.id;
+        }
+
+        // Link tag to event (ignore if already linked)
+        await db.insert(eventTags).values({
+          eventId,
+          tagId,
+          relevanceScore: 1.0,
+        }).onConflictDoNothing();
+
+      } catch (error) {
+        // Ignore individual tag errors, continue with others
+        console.warn(`  ⚠️ Failed to save tag "${name}": ${error.message}`);
+      }
+    }
+  }
+}
+
+/**
  * Create a new event from an article
  */
 async function createEvent(article, aiResult) {
@@ -40,6 +118,19 @@ async function createEvent(article, aiResult) {
     firstReportedAt: new Date(article.pubDate),
     lastUpdatedAt: new Date(),
   }).returning();
+
+  // Extract and save entities as tags
+  try {
+    const entities = await extractEntities(
+      aiResult.title || article.title,
+      aiResult.summary || article.description,
+      aiResult.category || article.category
+    );
+    await saveEventTags(newEvent.id, entities);
+    console.log(`  🏷️ Saved ${(entities.people?.length || 0) + (entities.places?.length || 0) + (entities.organizations?.length || 0) + (entities.topics?.length || 0)} tags`);
+  } catch (error) {
+    console.warn(`  ⚠️ Failed to extract entities: ${error.message}`);
+  }
 
   return newEvent;
 }
