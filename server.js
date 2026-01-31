@@ -349,6 +349,19 @@ app.get('/api/events', async (req, res) => {
           }
         }
 
+        // Parse source details
+        let sourceDetails = [];
+        try {
+          sourceDetails = e.sourceDetails ? JSON.parse(e.sourceDetails) : [];
+        } catch (err) {
+          sourceDetails = [];
+        }
+
+        // Create source names string (e.g., "BBC, CNN, SVT")
+        const sourceNames = sourceDetails.length > 0
+          ? sourceDetails.map(s => s.name).join(', ')
+          : `${e.sourceCount} ${e.sourceCount === 1 ? 'källa' : 'källor'}`;
+
         return {
           id: e.id,
           title: e.title,
@@ -358,8 +371,9 @@ app.get('/api/events', async (req, res) => {
           pubDate: e.firstReportedAt ? e.firstReportedAt.toISOString() : new Date().toISOString(),
           lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
           createdAt: e.createdAt ? e.createdAt.toISOString() : new Date().toISOString(),
-          source: `${e.sourceCount} ${e.sourceCount === 1 ? 'källa' : 'källor'}`,
+          source: sourceNames,
           sourceCount: e.sourceCount,
+          sourceDetails: sourceDetails, // Array with {name, url, pubDate}
           category: e.category || "general",
           region: e.region || "global",
           readingTime: "2 min",

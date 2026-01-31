@@ -262,9 +262,13 @@ async function matchArticleToEvent(articleTitle, articleSummary, existingEvents)
 EXISTING EVENTS (from last 48 hours):
 ${eventsContext}
 
-Analyze the NEW ARTICLE and determine:
-1. Is it about the SAME EVENT as one of the existing events? (same incident, same people, same topic)
-2. If yes, does it contain NEW INFORMATION or is it a DUPLICATE?
+Analyze the NEW ARTICLE and determine if it belongs to an existing event.
+
+IMPORTANT MATCHING RULES:
+1. SPORTS: Articles about the SAME match/game/tournament final ARE the same event, even if they focus on different players (e.g., "Rybakina wins Australian Open" and "Sabalenka loses final" are SAME EVENT)
+2. POLITICS: Articles about the same political decision/meeting/vote are the same event
+3. DISASTERS: Articles about the same disaster (earthquake, flood, accident) are the same event
+4. FOCUS ON: same time period + same main subject = likely same event
 
 Respond in JSON format:
 {
@@ -275,8 +279,8 @@ Respond in JSON format:
 }
 
 - "new": Completely different story, create new event
-- "update": Same story but contains new information (new details, updated numbers, developments)
-- "duplicate": Same story with no new information`;
+- "update": Same event/story but from different angle or with new details
+- "duplicate": Exact same information, no new details`;
 
     const response = await openai.chat.completions.create({
       model: apiConfig.deepseek.model,

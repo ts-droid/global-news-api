@@ -29,7 +29,14 @@ async function getRecentEvents() {
 /**
  * Create a new event from an article
  */
-async function createEvent(article, aiResult) {
+async function createEvent(article, aiResult, sourceName) {
+  // Create source details array with first source
+  const sourceDetails = [{
+    name: sourceName || article.sourceCode || 'Unknown',
+    url: article.link,
+    pubDate: article.pubDate
+  }];
+
   const [newEvent] = await db.insert(newsEvents).values({
     title: aiResult.title || article.title,
     summary: aiResult.summary || article.description?.substring(0, 300) || '',
@@ -37,6 +44,7 @@ async function createEvent(article, aiResult) {
     region: article.region,
     isBreaking: aiResult.isBreaking || false,
     sourceCount: 1,
+    sourceDetails: JSON.stringify(sourceDetails),
     firstReportedAt: new Date(article.pubDate),
     lastUpdatedAt: new Date(),
   }).returning();
@@ -47,11 +55,29 @@ async function createEvent(article, aiResult) {
 /**
  * Update an existing event with new information
  */
-async function updateEvent(eventId, newArticleTitle, newArticleSummary) {
+async function updateEvent(eventId, newArticleTitle, newArticleSummary, newArticleLink, sourceName, pubDate) {
   // Get existing event
   const [existingEvent] = await db.select().from(newsEvents).where(eq(newsEvents.id, eventId));
 
   if (!existingEvent) return null;
+
+  // Parse existing source details and add new source
+  let sourceDetails = [];
+  try {
+    sourceDetails = existingEvent.sourceDetails ? JSON.parse(existingEvent.sourceDetails) : [];
+  } catch (e) {
+    sourceDetails = [];
+  }
+
+  // Add new source (avoid duplicates by URL)
+  const existingUrls = new Set(sourceDetails.map(s => s.url));
+  if (!existingUrls.has(newArticleLink)) {
+    sourceDetails.push({
+      name: sourceName || 'Unknown',
+      url: newArticleLink,
+      pubDate: pubDate || new Date().toISOString()
+    });
+  }
 
   // Merge summaries using AI
   const updatedContent = await updateEventSummary(
@@ -66,7 +92,8 @@ async function updateEvent(eventId, newArticleTitle, newArticleSummary) {
     .set({
       title: updatedContent.title,
       summary: updatedContent.summary,
-      sourceCount: existingEvent.sourceCount + 1,
+      sourceCount: sourceDetails.length,
+      sourceDetails: JSON.stringify(sourceDetails),
       lastUpdatedAt: new Date(),
       updatedAt: new Date(),
     })
@@ -112,29 +139,36 @@ async function processArticlesBatch(articlesToProcess, sources) {
 
           console.log(`  → Event match: ${matchResult.matchType} (confidence: ${matchResult.confidence})`);
 
+          // Get source name from sources array
+          const sourceName = sources.find(s => s.code === article.sourceCode)?.name || article.sourceCode;
+
           if (matchResult.matchType === 'duplicate' && matchResult.confidence > 0.8) {
             // Skip duplicate articles
             console.log(`  ⊘ Skipping duplicate article`);
             return null;
           } else if (matchResult.matchType === 'update' && matchResult.eventId) {
-            // Update existing event
+            // Update existing event with source details
             const updatedEvent = await updateEvent(
               matchResult.eventId,
               aiResult.title || article.title,
-              aiResult.summary || article.description
+              aiResult.summary || article.description,
+              article.link,
+              sourceName,
+              article.pubDate
             );
             eventId = matchResult.eventId;
             console.log(`  ↻ Updated event: ${updatedEvent?.title?.substring(0, 40)}...`);
           } else {
-            // Create new event
-            const newEvent = await createEvent(article, aiResult);
+            // Create new event with source details
+            const newEvent = await createEvent(article, aiResult, sourceName);
             eventId = newEvent.id;
             isPrimarySource = true;
             console.log(`  ✚ Created new event: ${newEvent.title?.substring(0, 40)}...`);
           }
         } else {
-          // No recent events - create new one
-          const newEvent = await createEvent(article, aiResult);
+          // No recent events - create new one with source details
+          const sourceName = sources.find(s => s.code === article.sourceCode)?.name || article.sourceCode;
+          const newEvent = await createEvent(article, aiResult, sourceName);
           eventId = newEvent.id;
           isPrimarySource = true;
           console.log(`  ✚ Created new event (first): ${newEvent.title?.substring(0, 40)}...`);
