@@ -272,39 +272,19 @@ Svara ALLTID i följande JSON-format (inget annat):
 
 /**
  * GET /api/test-ai
- * Test AI translation directly with raw API call
+ * Test AI translation using the actual translateAndSummarize function
  */
 app.get('/api/test-ai', async (req, res) => {
+  const { translateAndSummarize } = require('./aiService');
   const { apiConfig } = require('./config/apiConfig');
-  const OpenAI = require('openai');
 
   try {
     const testTitle = "Tesla announces new electric vehicle";
     const testContent = "Tesla CEO Elon Musk announced today a new electric vehicle model that will cost $25,000. The car will have a range of 300 miles and will be available in 2026.";
 
-    const openai = new OpenAI({
-      baseURL: apiConfig.deepseek.baseUrl,
-      apiKey: apiConfig.deepseek.apiKey,
-    });
+    console.log("Testing translateAndSummarize function...");
 
-    const systemPrompt = `Du är en nyhetsjournalist. Översätt till svenska och sammanfatta.
-Svara i JSON: {"title": "svensk titel", "summary": "svensk sammanfattning", "category": "tech", "isBreaking": false}`;
-
-    console.log("Making direct API call to DeepSeek...");
-
-    const response = await openai.chat.completions.create({
-      model: apiConfig.deepseek.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Rubrik: ${testTitle}\n\nInnehåll: ${testContent}` }
-      ],
-      max_tokens: 600,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-    });
-
-    const rawResponse = response.choices[0].message.content;
-    const parsed = JSON.parse(rawResponse);
+    const result = await translateAndSummarize(testTitle, testContent, "international");
 
     res.json({
       status: 'success',
@@ -314,10 +294,9 @@ Svara i JSON: {"title": "svensk titel", "summary": "svensk sammanfattning", "cat
         baseUrl: apiConfig.deepseek.baseUrl,
         model: apiConfig.deepseek.model
       },
-      input: { title: testTitle, content: testContent },
-      rawApiResponse: rawResponse,
-      parsedOutput: parsed,
-      wasTranslated: parsed.title !== testTitle
+      input: { title: testTitle, content: testContent, category: "international" },
+      output: result,
+      wasTranslated: result.title !== testTitle
     });
   } catch (error) {
     res.status(500).json({
