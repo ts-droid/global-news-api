@@ -21,8 +21,8 @@ const {
   verify2FA 
 } = require('./adminAuth');
 const { db } = require('./db');
-const { adminUsers, rssSources, aiPrompts, articles: articlesTable, newsEvents, tags, eventTags } = require('./db/schema');
-const { eq, desc, inArray, and } = require('drizzle-orm');
+const { adminUsers, rssSources, aiPrompts, articles: articlesTable, newsEvents, tags, eventTags, eventTranslations } = require('./db/schema');
+const { eq, desc, inArray, and, isNull } = require('drizzle-orm');
 
 const swedishMockArticles = [
   {
@@ -408,8 +408,23 @@ app.get('/api/events', async (req, res) => {
       }
     }
 
-    // Translate events if needed (increased timeout for DeepSeek API)
-    const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 15000) => {
+    // Helper: Save translation to DB (fire-and-forget)
+    const saveTranslationToDB = async (eventId, lang, title, summary) => {
+      try {
+        await db.insert(eventTranslations).values({
+          eventId,
+          language: lang,
+          title,
+          summary,
+        }).onConflictDoNothing(); // Skip if already exists
+        console.log(`💾 Saved translation to DB for event ${eventId} (${lang})`);
+      } catch (err) {
+        console.warn(`Failed to save translation to DB: ${err.message}`);
+      }
+    };
+
+    // Translate with timeout and save to DB
+    const translateWithTimeout = async (title, summary, targetLang, eventId, timeoutMs = 15000) => {
       const startTime = Date.now();
       try {
         const result = await Promise.race([
@@ -417,6 +432,8 @@ app.get('/api/events', async (req, res) => {
           new Promise((_, reject) => setTimeout(() => reject(new Error('Translation timeout')), timeoutMs))
         ]);
         console.log(`✓ Translation completed in ${Date.now() - startTime}ms`);
+        // Save to DB asynchronously
+        saveTranslationToDB(eventId, targetLang, result.title, result.summary);
         return result;
       } catch (err) {
         console.error(`✗ Translation failed after ${Date.now() - startTime}ms: ${err.message}`);
@@ -424,27 +441,47 @@ app.get('/api/events', async (req, res) => {
       }
     };
 
-    // Translation cache key
-    const translationCacheKey = (id, lang) => `trans_${id}_${lang}`;
+    // Fetch existing translations from DB for this batch
+    const dbTranslationsMap = {}; // eventId -> {title, summary}
+    if (lang !== 'en' && eventIds.length > 0) {
+      try {
+        const existingTranslations = await db.select({
+          eventId: eventTranslations.eventId,
+          title: eventTranslations.title,
+          summary: eventTranslations.summary,
+        })
+        .from(eventTranslations)
+        .where(and(
+          inArray(eventTranslations.eventId, eventIds),
+          eq(eventTranslations.language, lang)
+        ));
 
-    // Process events - translate first 5 synchronously, rest asynchronously
+        for (const t of existingTranslations) {
+          dbTranslationsMap[t.eventId] = { title: t.title, summary: t.summary };
+        }
+        console.log(`📚 Found ${existingTranslations.length} cached translations in DB`);
+      } catch (err) {
+        console.warn(`Failed to fetch translations from DB: ${err.message}`);
+      }
+    }
+
+    // Process events - use DB cache first, then translate missing
     const translatedEvents = await Promise.all(pageEvents.map(async (e, index) => {
       let titleTranslated = e.title;
       let summaryTranslated = e.summary;
       let isTranslated = false;
 
       if (lang !== 'en') {
-        // Check translation cache first
-        const cachedTrans = cache.get(translationCacheKey(e.id, lang));
-        if (cachedTrans) {
-          titleTranslated = cachedTrans.title;
-          summaryTranslated = cachedTrans.summary;
+        // Check DB translation cache first
+        const dbCached = dbTranslationsMap[e.id];
+        if (dbCached) {
+          titleTranslated = dbCached.title;
+          summaryTranslated = dbCached.summary;
           isTranslated = true;
-        } else if (index < 2) {
-          // Translate first 2 events synchronously for immediate display
+        } else if (index < 3) {
+          // Translate first 3 events synchronously for immediate display
           try {
-            const translated = await translateWithTimeout(e.title, e.summary, lang, 15000);
-            cache.set(translationCacheKey(e.id, lang), translated, 3600);
+            const translated = await translateWithTimeout(e.title, e.summary, lang, e.id, 15000);
             titleTranslated = translated.title;
             summaryTranslated = translated.summary;
             isTranslated = true;
@@ -452,12 +489,9 @@ app.get('/api/events', async (req, res) => {
             console.error(`Translation failed for event ${e.id}: ${err.message}`);
           }
         } else {
-          // Queue background translation for remaining events
-          translateWithTimeout(e.title, e.summary, lang, 15000)
-            .then(translated => {
-              cache.set(translationCacheKey(e.id, lang), translated, 3600);
-              console.log(`Background translation cached for ${e.id}`);
-            })
+          // Queue background translation for remaining events (saves to DB)
+          translateWithTimeout(e.title, e.summary, lang, e.id, 15000)
+            .then(() => console.log(`Background translation done for ${e.id}`))
             .catch(() => {}); // Silently ignore failures
         }
       }

@@ -1,8 +1,8 @@
 const { db } = require('./db');
-const { rssSources, articles, newsEvents, tags, eventTags } = require('./db/schema');
-const { eq, desc, gte, and } = require('drizzle-orm');
+const { rssSources, articles, newsEvents, tags, eventTags, eventTranslations } = require('./db/schema');
+const { eq, desc, gte, and, isNull, notInArray } = require('drizzle-orm');
 const { fetchFromSources, deduplicateArticles, sortByDate } = require('./rssFetcher');
-const { summarizeAndCategorize, matchArticleToEvent, updateEventSummary, extractEntities, VALID_COUNTRY_CODES } = require('./aiService');
+const { summarizeAndCategorize, matchArticleToEvent, updateEventSummary, extractEntities, translateArticle, VALID_COUNTRY_CODES } = require('./aiService');
 const cache = require('./newsCache');
 
 let isRefreshing = false;
@@ -386,16 +386,109 @@ async function updateCache(sources) {
 }
 
 /**
+ * Pre-translate recent events to Swedish
+ * Runs after main refresh to ensure all events have Swedish translations
+ */
+async function preTranslateToSwedish() {
+  const targetLang = 'sv';
+  const BATCH_SIZE = 5;
+  const MAX_EVENTS = 30; // Only translate most recent 30 events
+
+  try {
+    console.log('🌐 Starting pre-translation to Swedish...');
+
+    // Get recent events that don't have Swedish translations
+    const recentEventIds = await db.select({ id: newsEvents.id })
+      .from(newsEvents)
+      .orderBy(desc(newsEvents.lastUpdatedAt))
+      .limit(MAX_EVENTS);
+
+    if (recentEventIds.length === 0) {
+      console.log('No events to translate');
+      return;
+    }
+
+    const eventIdList = recentEventIds.map(e => e.id);
+
+    // Find which events already have Swedish translations
+    const existingTranslations = await db.select({ eventId: eventTranslations.eventId })
+      .from(eventTranslations)
+      .where(and(
+        eq(eventTranslations.language, targetLang),
+        // Only check events in our list
+      ));
+
+    const translatedEventIds = new Set(existingTranslations.map(t => t.eventId));
+
+    // Filter to events that need translation
+    const eventsNeedingTranslation = [];
+    for (const id of eventIdList) {
+      if (!translatedEventIds.has(id)) {
+        const [event] = await db.select().from(newsEvents).where(eq(newsEvents.id, id));
+        if (event) {
+          eventsNeedingTranslation.push(event);
+        }
+      }
+    }
+
+    if (eventsNeedingTranslation.length === 0) {
+      console.log('✅ All recent events already have Swedish translations');
+      return;
+    }
+
+    console.log(`📝 Found ${eventsNeedingTranslation.length} events needing Swedish translation`);
+
+    // Translate in batches
+    for (let i = 0; i < eventsNeedingTranslation.length; i += BATCH_SIZE) {
+      const batch = eventsNeedingTranslation.slice(i, i + BATCH_SIZE);
+
+      await Promise.all(batch.map(async (event) => {
+        try {
+          const translated = await translateArticle(event.title, event.summary, targetLang);
+
+          await db.insert(eventTranslations).values({
+            eventId: event.id,
+            language: targetLang,
+            title: translated.title,
+            summary: translated.summary,
+          }).onConflictDoNothing();
+
+          console.log(`  ✓ Translated: "${event.title?.substring(0, 40)}..."`);
+        } catch (err) {
+          console.warn(`  ✗ Failed to translate event ${event.id}: ${err.message}`);
+        }
+      }));
+
+      // Small delay between batches
+      if (i + BATCH_SIZE < eventsNeedingTranslation.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    console.log(`✅ Pre-translation complete: ${eventsNeedingTranslation.length} events translated`);
+  } catch (error) {
+    console.error('Pre-translation error:', error.message);
+  }
+}
+
+/**
  * Start the background worker
  */
 function startBackgroundWorker(intervalMs = REFRESH_INTERVAL_MS) {
   console.log(`Starting background worker with ${intervalMs/1000/60} minute interval`);
   refreshNews();
   setInterval(refreshNews, intervalMs);
+
+  // Run pre-translation 2 minutes after startup, then every 10 minutes
+  setTimeout(() => {
+    preTranslateToSwedish();
+    setInterval(preTranslateToSwedish, 10 * 60 * 1000);
+  }, 2 * 60 * 1000);
 }
 
 module.exports = {
   startBackgroundWorker,
   refreshNews,
-  updateCache
+  updateCache,
+  preTranslateToSwedish
 };
