@@ -370,66 +370,66 @@ app.get('/api/events', async (req, res) => {
       }
     };
 
-    const translatedEvents = [];
-    const BATCH_SIZE = 3; // Reduced for faster response
+    // Translation cache key
+    const translationCacheKey = (id, lang) => `trans_${id}_${lang}`;
 
-    for (let i = 0; i < pageEvents.length; i += BATCH_SIZE) {
-      const batch = pageEvents.slice(i, i + BATCH_SIZE);
+    // Process events - use cached translations or return untranslated (fast!)
+    const translatedEvents = pageEvents.map(e => {
+      let titleTranslated = e.title;
+      let summaryTranslated = e.summary;
+      let isTranslated = false;
 
-      const batchResults = await Promise.all(batch.map(async (e) => {
-        let titleTranslated = e.title;
-        let summaryTranslated = e.summary;
-        let isTranslated = false;
-
-        if (lang !== 'en') {
-          try {
-            const translated = await translateWithTimeout(e.title, e.summary, lang, 10000); // 10s timeout
-            titleTranslated = translated.title;
-            summaryTranslated = translated.summary;
-            isTranslated = true;
-          } catch (err) {
-            // Return untranslated on timeout - client will cache and retry
-            console.error(`Translation skipped for event ${e.id}: ${err.message}`);
-          }
-        }
-
-        // Get source names for this event
-        const eventSourceCodes = eventSources[e.id] ? Array.from(eventSources[e.id]) : [];
-        const sourceNames = eventSourceCodes.map(code => sourceNameMap[code] || code);
-
-        // Source display: show name if 1 source, count if multiple
-        let sourceDisplay;
-        if (sourceNames.length === 1) {
-          sourceDisplay = sourceNames[0];
-        } else if (sourceNames.length > 1) {
-          sourceDisplay = `${sourceNames.length} källor`;
+      if (lang !== 'en') {
+        // Check translation cache first
+        const cachedTrans = cache.get(translationCacheKey(e.id, lang));
+        if (cachedTrans) {
+          titleTranslated = cachedTrans.title;
+          summaryTranslated = cachedTrans.summary;
+          isTranslated = true;
         } else {
-          sourceDisplay = e.sourceCount === 1 ? '1 källa' : `${e.sourceCount} källor`;
+          // Queue translation in background (don't wait)
+          translateWithTimeout(e.title, e.summary, lang, 10000)
+            .then(translated => {
+              cache.set(translationCacheKey(e.id, lang), translated, 3600); // Cache 1 hour
+            })
+            .catch(err => console.error(`Background translation failed: ${err.message}`));
         }
+      }
 
-        return {
-          id: e.id,
-          title: e.title,
-          titleSv: titleTranslated,
-          summarySv: summaryTranslated,
-          description: e.summary,
-          pubDate: e.firstReportedAt ? e.firstReportedAt.toISOString() : new Date().toISOString(),
-          lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
-          createdAt: e.createdAt ? e.createdAt.toISOString() : new Date().toISOString(),
-          source: sourceDisplay,
-          sourceCount: e.sourceCount,
-          category: e.category || "general",
-          region: e.region || "global",
-          readingTime: "2 min",
-          imageUrl: null,
-          isBreaking: !!e.isBreaking,
-          isTranslated: isTranslated,
-          isEvent: true
-        };
-      }));
+      // Get source names for this event
+      const eventSourceCodes = eventSources[e.id] ? Array.from(eventSources[e.id]) : [];
+      const sourceNames = eventSourceCodes.map(code => sourceNameMap[code] || code);
 
-      translatedEvents.push(...batchResults);
-    }
+      // Source display: show name if 1 source, count if multiple
+      let sourceDisplay;
+      if (sourceNames.length === 1) {
+        sourceDisplay = sourceNames[0];
+      } else if (sourceNames.length > 1) {
+        sourceDisplay = `${sourceNames.length} källor`;
+      } else {
+        sourceDisplay = e.sourceCount === 1 ? '1 källa' : `${e.sourceCount} källor`;
+      }
+
+      return {
+        id: e.id,
+        title: e.title,
+        titleSv: titleTranslated,
+        summarySv: summaryTranslated,
+        description: e.summary,
+        pubDate: e.firstReportedAt ? e.firstReportedAt.toISOString() : new Date().toISOString(),
+        lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
+        createdAt: e.createdAt ? e.createdAt.toISOString() : new Date().toISOString(),
+        source: sourceDisplay,
+        sourceCount: e.sourceCount,
+        category: e.category || "general",
+        region: e.region || "global",
+        readingTime: "2 min",
+        imageUrl: null,
+        isBreaking: !!e.isBreaking,
+        isTranslated: isTranslated,
+        isEvent: true
+      };
+    });
 
     const result = {
       events: translatedEvents,
