@@ -1,4 +1,4 @@
-const { pgTable, varchar, text, timestamp, boolean, uuid } = require("drizzle-orm/pg-core");
+const { pgTable, varchar, text, timestamp, boolean, uuid, integer } = require("drizzle-orm/pg-core");
 const { sql } = require("drizzle-orm");
 
 // Admin users - separate authentication system for dashboard access
@@ -42,6 +42,29 @@ const aiPrompts = pgTable("ai_prompts", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// News Events - Groups related articles about the same story
+const newsEvents = pgTable("news_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+
+  // Event summary (AI-generated, combines all sources)
+  title: text("title").notNull(), // Combined headline
+  summary: text("summary").notNull(), // Combined summary from all sources
+
+  // Metadata
+  category: varchar("category", { length: 50 }).notNull(),
+  region: varchar("region", { length: 50 }),
+
+  // Status
+  isBreaking: boolean("is_breaking").default(false).notNull(),
+  sourceCount: integer("source_count").default(1).notNull(), // Number of articles about this event
+
+  // Timestamps
+  firstReportedAt: timestamp("first_reported_at").notNull(), // When first article was published
+  lastUpdatedAt: timestamp("last_updated_at").notNull(), // When last article was added
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Articles - Persistent storage for news items
 const articles = pgTable("articles", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -58,6 +81,10 @@ const articles = pgTable("articles", {
   imageUrl: text("image_url"),
   author: varchar("author", { length: 255 }),
   
+  // Event linkage (for deduplication/grouping)
+  eventId: uuid("event_id").references(() => newsEvents.id),
+  isPrimarySource: boolean("is_primary_source").default(false).notNull(), // First article for this event
+
   // Metadata
   category: varchar("category", { length: 50 }).notNull(),
   region: varchar("region", { length: 50 }).notNull(),
@@ -79,5 +106,6 @@ module.exports = {
   adminUsers,
   rssSources,
   aiPrompts,
+  newsEvents,
   articles,
 };

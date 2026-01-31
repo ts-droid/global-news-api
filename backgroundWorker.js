@@ -1,8 +1,8 @@
 const { db } = require('./db');
-const { rssSources, articles } = require('./db/schema');
-const { eq, desc } = require('drizzle-orm');
+const { rssSources, articles, newsEvents } = require('./db/schema');
+const { eq, desc, gte } = require('drizzle-orm');
 const { fetchFromSources, deduplicateArticles, sortByDate } = require('./rssFetcher');
-const { summarizeAndCategorize } = require('./aiService');
+const { summarizeAndCategorize, matchArticleToEvent, updateEventSummary } = require('./aiService');
 const cache = require('./newsCache');
 
 let isRefreshing = false;
@@ -11,30 +11,136 @@ let isRefreshing = false;
 const AI_BATCH_SIZE = parseInt(process.env.AI_BATCH_SIZE) || 5;
 const AI_BATCH_DELAY_MS = parseInt(process.env.AI_BATCH_DELAY_MS) || 1000;
 const REFRESH_INTERVAL_MS = parseInt(process.env.REFRESH_INTERVAL_MS) || 15 * 60 * 1000;
+const EVENT_WINDOW_HOURS = 48; // Look back 48 hours for related events
 
 /**
- * Process articles in parallel batches for AI translation
- * @param {Array} articlesToProcess - Articles needing AI processing
- * @param {Array} sources - All sources for lookup
- * @returns {Array} Processed articles ready for DB insert
+ * Get recent events for matching (last 48 hours)
+ */
+async function getRecentEvents() {
+  const cutoffDate = new Date(Date.now() - EVENT_WINDOW_HOURS * 60 * 60 * 1000);
+  return db
+    .select()
+    .from(newsEvents)
+    .where(gte(newsEvents.lastUpdatedAt, cutoffDate))
+    .orderBy(desc(newsEvents.lastUpdatedAt))
+    .limit(50);
+}
+
+/**
+ * Create a new event from an article
+ */
+async function createEvent(article, aiResult) {
+  const [newEvent] = await db.insert(newsEvents).values({
+    title: aiResult.title || article.title,
+    summary: aiResult.summary || article.description?.substring(0, 300) || '',
+    category: aiResult.category || article.category,
+    region: article.region,
+    isBreaking: aiResult.isBreaking || false,
+    sourceCount: 1,
+    firstReportedAt: new Date(article.pubDate),
+    lastUpdatedAt: new Date(),
+  }).returning();
+
+  return newEvent;
+}
+
+/**
+ * Update an existing event with new information
+ */
+async function updateEvent(eventId, newArticleTitle, newArticleSummary) {
+  // Get existing event
+  const [existingEvent] = await db.select().from(newsEvents).where(eq(newsEvents.id, eventId));
+
+  if (!existingEvent) return null;
+
+  // Merge summaries using AI
+  const updatedContent = await updateEventSummary(
+    existingEvent.title,
+    existingEvent.summary,
+    newArticleTitle,
+    newArticleSummary
+  );
+
+  // Update event in DB
+  const [updatedEvent] = await db.update(newsEvents)
+    .set({
+      title: updatedContent.title,
+      summary: updatedContent.summary,
+      sourceCount: existingEvent.sourceCount + 1,
+      lastUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(newsEvents.id, eventId))
+    .returning();
+
+  return updatedEvent;
+}
+
+/**
+ * Process articles with event matching
  */
 async function processArticlesBatch(articlesToProcess, sources) {
   const results = [];
 
-  // Process in batches to avoid overwhelming the AI API
+  // Get recent events for matching
+  const recentEvents = await getRecentEvents();
+  console.log(`Found ${recentEvents.length} recent events for matching`);
+
+  // Process in batches
   for (let i = 0; i < articlesToProcess.length; i += AI_BATCH_SIZE) {
     const batch = articlesToProcess.slice(i, i + AI_BATCH_SIZE);
 
     console.log(`Processing batch ${Math.floor(i/AI_BATCH_SIZE) + 1}/${Math.ceil(articlesToProcess.length/AI_BATCH_SIZE)} (${batch.length} articles)`);
 
-    // Process batch in parallel
     const batchPromises = batch.map(async (article) => {
       try {
+        // Step 1: Summarize and categorize
         console.log(`  → Summarizing: "${article.title.substring(0, 50)}..."`);
         const aiResult = await summarizeAndCategorize(article.title, article.description, article.category);
         console.log(`  ✓ Result: "${aiResult.title?.substring(0, 50)}..." (category: ${aiResult.category})`);
 
-        // Calculate reading time from full content if available
+        // Step 2: Match against existing events
+        let eventId = null;
+        let isPrimarySource = false;
+
+        if (recentEvents.length > 0) {
+          const matchResult = await matchArticleToEvent(
+            aiResult.title || article.title,
+            aiResult.summary || article.description,
+            recentEvents
+          );
+
+          console.log(`  → Event match: ${matchResult.matchType} (confidence: ${matchResult.confidence})`);
+
+          if (matchResult.matchType === 'duplicate' && matchResult.confidence > 0.8) {
+            // Skip duplicate articles
+            console.log(`  ⊘ Skipping duplicate article`);
+            return null;
+          } else if (matchResult.matchType === 'update' && matchResult.eventId) {
+            // Update existing event
+            const updatedEvent = await updateEvent(
+              matchResult.eventId,
+              aiResult.title || article.title,
+              aiResult.summary || article.description
+            );
+            eventId = matchResult.eventId;
+            console.log(`  ↻ Updated event: ${updatedEvent?.title?.substring(0, 40)}...`);
+          } else {
+            // Create new event
+            const newEvent = await createEvent(article, aiResult);
+            eventId = newEvent.id;
+            isPrimarySource = true;
+            console.log(`  ✚ Created new event: ${newEvent.title?.substring(0, 40)}...`);
+          }
+        } else {
+          // No recent events - create new one
+          const newEvent = await createEvent(article, aiResult);
+          eventId = newEvent.id;
+          isPrimarySource = true;
+          console.log(`  ✚ Created new event (first): ${newEvent.title?.substring(0, 40)}...`);
+        }
+
+        // Calculate reading time
         const wordCount = (article.description || '').split(/\s+/).length;
         const readingMinutes = Math.max(2, Math.ceil(wordCount / 200));
 
@@ -42,54 +148,36 @@ async function processArticlesBatch(articlesToProcess, sources) {
           articleHash: article.id,
           sourceId: sources.find(s => s.code === article.sourceCode)?.id,
           sourceCode: article.sourceCode,
-          title: aiResult.title || article.title, // AI-processed headline (original language)
+          title: aiResult.title || article.title,
           link: article.link,
-          description: article.description, // Original description
+          description: article.description,
           content: article.description,
           pubDate: new Date(article.pubDate),
-          imageUrl: article.imageUrl,
+          imageUrl: null, // Images removed
           author: article.author,
-          category: aiResult.category || article.category, // AI-classified category
+          eventId: eventId,
+          isPrimarySource: isPrimarySource,
+          category: aiResult.category || article.category,
           region: article.region,
           language: article.language,
-          isTranslated: false, // Not translated yet - will be translated on request
-          titleSv: null, // Will be filled when translated
-          summarySv: aiResult.summary, // AI summary (original language for now)
+          isTranslated: false,
+          titleSv: null,
+          summarySv: aiResult.summary,
           readingTime: `${readingMinutes} min`,
           isBreaking: aiResult.isBreaking || false,
           updatedAt: new Date()
         };
       } catch (error) {
         console.error(`Error processing article "${article.title}":`, error.message);
-        // Return article without AI translation as fallback
-        return {
-          articleHash: article.id,
-          sourceId: sources.find(s => s.code === article.sourceCode)?.id,
-          sourceCode: article.sourceCode,
-          title: article.title,
-          link: article.link,
-          description: article.description,
-          content: article.description,
-          pubDate: new Date(article.pubDate),
-          imageUrl: article.imageUrl,
-          author: article.author,
-          category: article.category,
-          region: article.region,
-          language: article.language,
-          isTranslated: false,
-          titleSv: article.title, // Use original as fallback
-          summarySv: article.description?.substring(0, 300) || '',
-          readingTime: '2 min',
-          isBreaking: false,
-          updatedAt: new Date()
-        };
+        return null; // Skip errored articles
       }
     });
 
     const batchResults = await Promise.all(batchPromises);
-    results.push(...batchResults);
+    // Filter out nulls (duplicates and errors)
+    results.push(...batchResults.filter(r => r !== null));
 
-    // Small delay between batches to be nice to AI API rate limits
+    // Delay between batches
     if (i + AI_BATCH_SIZE < articlesToProcess.length) {
       await new Promise(resolve => setTimeout(resolve, AI_BATCH_DELAY_MS));
     }
@@ -109,7 +197,7 @@ async function refreshNews() {
   isRefreshing = true;
 
   const startTime = Date.now();
-  console.log('--- Background Refresh Started (Database Persistence) ---');
+  console.log('--- Background Refresh Started (Event-Based Deduplication) ---');
 
   try {
     // Fetch active sources
@@ -132,17 +220,17 @@ async function refreshNews() {
     console.log(`${newArticles.length} new articles to process`);
 
     if (newArticles.length > 0) {
-      // Process new articles with parallel AI translation
+      // Process new articles with event matching
       const processedArticles = await processArticlesBatch(newArticles, sources);
 
       // Batch insert into database
       if (processedArticles.length > 0) {
         await db.insert(articles).values(processedArticles);
-        console.log(`✓ Stored ${processedArticles.length} NEW articles in database.`);
+        console.log(`✓ Stored ${processedArticles.length} articles in database.`);
       }
     }
 
-    // --- Update Cache from DB (Source of Truth) ---
+    // Update Cache from DB
     await updateCache(sources);
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -156,75 +244,62 @@ async function refreshNews() {
 }
 
 /**
- * Update cache with latest articles from database
+ * Update cache with latest events from database
  */
 async function updateCache(sources) {
   try {
-    // Build source name map
     const sourceMap = new Map(sources.map(s => [s.code, s.name]));
 
-    // Fetch latest articles from DB
-    const allRecentArticles = await db
+    // Fetch latest events (not articles) - this is what iOS will display
+    const recentEvents = await db
       .select()
-      .from(articles)
-      .orderBy(desc(articles.createdAt))
+      .from(newsEvents)
+      .orderBy(desc(newsEvents.lastUpdatedAt))
       .limit(100);
 
-    // Map to API format with source names
-    const mappedArticles = allRecentArticles.map(a => ({
-      id: a.id,
-      articleHash: a.articleHash,
-      title: a.title || "No Title",
-      titleSv: a.titleSv || a.title || "Rubrik saknas",
-      summarySv: a.summarySv || a.description || "Ingen sammanfattning tillgänglig.",
-      description: a.description || "",
-      link: a.link || "#",
-      pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
-      createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
-      source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
-      sourceCode: a.sourceCode,
-      author: a.author || null,
-      category: a.category || "general",
-      region: a.region || "global",
-      readingTime: a.readingTime || "2 min",
-      imageUrl: a.imageUrl || null,
-      isBreaking: !!a.isBreaking,
-      isTranslated: !!a.isTranslated
+    // Map events to API format
+    const mappedEvents = recentEvents.map(e => ({
+      id: e.id,
+      title: e.title || "No Title",
+      titleSv: e.title, // Will be translated on request
+      summarySv: e.summary,
+      description: e.summary || "",
+      link: "#", // Events don't have direct links
+      pubDate: e.firstReportedAt ? e.firstReportedAt.toISOString() : new Date().toISOString(),
+      createdAt: e.createdAt ? e.createdAt.toISOString() : new Date().toISOString(),
+      lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
+      source: `${e.sourceCount} ${e.sourceCount === 1 ? 'källa' : 'källor'}`,
+      sourceCount: e.sourceCount,
+      category: e.category || "general",
+      region: e.region || "global",
+      readingTime: "2 min",
+      imageUrl: null,
+      isBreaking: !!e.isBreaking,
+      isTranslated: false,
+      isEvent: true // Flag to indicate this is an event, not a single article
     }));
 
-    // Update main cache
-    cache.set('news_all_all_sv', mappedArticles);
+    // Update caches
+    cache.set('news_all_all_sv', mappedEvents);
 
-    // Update category-specific caches
-    const categories = [...new Set(mappedArticles.map(a => a.category))];
+    const categories = [...new Set(mappedEvents.map(e => e.category))];
     for (const cat of categories) {
-      const catArticles = mappedArticles.filter(a => a.category === cat);
-      cache.set(`category_${cat}_sv`, catArticles);
+      const catEvents = mappedEvents.filter(e => e.category === cat);
+      cache.set(`category_${cat}_sv`, catEvents);
     }
 
-    // Update region-specific caches
-    const regions = [...new Set(mappedArticles.map(a => a.region))];
-    for (const region of regions) {
-      const regionArticles = mappedArticles.filter(a => a.region === region);
-      cache.set(`region_${region}_sv`, regionArticles);
-    }
-
-    console.log(`Cache updated with ${mappedArticles.length} articles`);
+    console.log(`Cache updated with ${mappedEvents.length} events`);
   } catch (error) {
     console.error('Cache update error:', error);
   }
 }
 
 /**
- * Start the background worker with configurable interval
+ * Start the background worker
  */
 function startBackgroundWorker(intervalMs = REFRESH_INTERVAL_MS) {
   console.log(`Starting background worker with ${intervalMs/1000/60} minute interval`);
-
-  // Initial run
   refreshNews();
-
-  // Schedule periodic runs
   setInterval(refreshNews, intervalMs);
 }
 

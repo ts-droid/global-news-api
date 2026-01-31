@@ -21,7 +21,7 @@ const {
   verify2FA 
 } = require('./adminAuth');
 const { db } = require('./db');
-const { adminUsers, rssSources, aiPrompts, articles: articlesTable } = require('./db/schema');
+const { adminUsers, rssSources, aiPrompts, articles: articlesTable, newsEvents } = require('./db/schema');
 const { eq, desc } = require('drizzle-orm');
 
 const swedishMockArticles = [
@@ -259,6 +259,178 @@ app.get('/api/news', async (req, res) => {
     res.json({ status: 'success', data: result });
   } catch (error) {
     console.error('Error fetching news:', error);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/events
+ * Get news events (grouped articles) - PRIMARY ENDPOINT FOR iOS APP
+ * Returns events with source count, not individual articles
+ */
+app.get('/api/events', async (req, res) => {
+  try {
+    const { limit = 20, offset = 0, category, lang = 'sv' } = req.query;
+    const { translateArticle } = require('./aiService');
+    const safeLimit = Math.min(parseInt(limit) || 20, 50);
+    const safeOffset = parseInt(offset) || 0;
+
+    // Check cache first
+    const cacheKey = `events_${category || 'all'}_${lang}_${safeOffset}_${safeLimit}`;
+    let cachedEvents = cache.get(cacheKey);
+
+    if (cachedEvents) {
+      return res.json({ status: 'success', data: cachedEvents });
+    }
+
+    console.log(`Fetching events (lang: ${lang}, limit: ${safeLimit}, offset: ${safeOffset})`);
+
+    // Build query for events
+    let query = db.select().from(newsEvents).orderBy(desc(newsEvents.lastUpdatedAt));
+    if (category) query = query.where(eq(newsEvents.category, category));
+
+    const allEvents = await query;
+
+    if (allEvents.length === 0) {
+      console.log('No events found - triggering refresh');
+      refreshNews();
+      return res.json({
+        status: 'success',
+        data: {
+          events: [],
+          pagination: { total: 0, limit: safeLimit, offset: safeOffset, hasMore: false }
+        }
+      });
+    }
+
+    // Paginate
+    const pageEvents = allEvents.slice(safeOffset, safeOffset + safeLimit);
+    const total = allEvents.length;
+
+    // Translate events if needed
+    const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 5000) => {
+      return Promise.race([
+        translateArticle(title, summary, targetLang),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Translation timeout')), timeoutMs))
+      ]);
+    };
+
+    const translatedEvents = [];
+    const BATCH_SIZE = 5;
+
+    for (let i = 0; i < pageEvents.length; i += BATCH_SIZE) {
+      const batch = pageEvents.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.all(batch.map(async (e) => {
+        let titleTranslated = e.title;
+        let summaryTranslated = e.summary;
+        let isTranslated = false;
+
+        if (lang !== 'en') {
+          try {
+            const translated = await translateWithTimeout(e.title, e.summary, lang);
+            titleTranslated = translated.title;
+            summaryTranslated = translated.summary;
+            isTranslated = true;
+          } catch (err) {
+            console.error(`Translation error for event ${e.id}:`, err.message);
+          }
+        }
+
+        return {
+          id: e.id,
+          title: e.title,
+          titleSv: titleTranslated,
+          summarySv: summaryTranslated,
+          description: e.summary,
+          pubDate: e.firstReportedAt ? e.firstReportedAt.toISOString() : new Date().toISOString(),
+          lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
+          createdAt: e.createdAt ? e.createdAt.toISOString() : new Date().toISOString(),
+          source: `${e.sourceCount} ${e.sourceCount === 1 ? 'källa' : 'källor'}`,
+          sourceCount: e.sourceCount,
+          category: e.category || "general",
+          region: e.region || "global",
+          readingTime: "2 min",
+          imageUrl: null,
+          isBreaking: !!e.isBreaking,
+          isTranslated: isTranslated,
+          isEvent: true
+        };
+      }));
+
+      translatedEvents.push(...batchResults);
+    }
+
+    const result = {
+      events: translatedEvents,
+      pagination: {
+        total: total,
+        limit: safeLimit,
+        offset: safeOffset,
+        hasMore: safeOffset + safeLimit < total
+      }
+    };
+
+    // Cache for 5 minutes
+    cache.set(cacheKey, result, 300);
+
+    res.json({ status: 'success', data: result });
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/events/:id/articles
+ * Get all articles for a specific event
+ */
+app.get('/api/events/:id/articles', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get the event
+    const [event] = await db.select().from(newsEvents).where(eq(newsEvents.id, id));
+
+    if (!event) {
+      return res.status(404).json({ status: 'error', message: 'Event not found' });
+    }
+
+    // Get all articles for this event
+    const eventArticles = await db
+      .select()
+      .from(articlesTable)
+      .where(eq(articlesTable.eventId, id))
+      .orderBy(desc(articlesTable.pubDate));
+
+    // Get source names
+    const sources = await db.select().from(rssSources);
+    const sourceMap = new Map(sources.map(s => [s.code, s.name]));
+
+    const mappedArticles = eventArticles.map(a => ({
+      id: a.id,
+      title: a.title,
+      link: a.link,
+      source: sourceMap.get(a.sourceCode) || a.sourceCode,
+      pubDate: a.pubDate ? a.pubDate.toISOString() : null,
+      isPrimarySource: a.isPrimarySource
+    }));
+
+    res.json({
+      status: 'success',
+      data: {
+        event: {
+          id: event.id,
+          title: event.title,
+          summary: event.summary,
+          category: event.category,
+          sourceCount: event.sourceCount
+        },
+        articles: mappedArticles
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching event articles:', error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 });

@@ -242,9 +242,120 @@ async function explainTopic(title, summary, category) {
   }
 }
 
+/**
+ * Match article against existing events to find duplicates/updates
+ * Returns: { matchType: 'new' | 'update' | 'duplicate', eventId?: string, confidence: number }
+ */
+async function matchArticleToEvent(articleTitle, articleSummary, existingEvents) {
+  if (!apiConfig.deepseek.apiKey || existingEvents.length === 0) {
+    return { matchType: 'new', confidence: 1.0 };
+  }
+
+  try {
+    // Format existing events for comparison
+    const eventsContext = existingEvents.map((e, i) =>
+      `[Event ${i + 1}] ID: ${e.id}\nTitle: ${e.title}\nSummary: ${e.summary?.substring(0, 200)}...`
+    ).join('\n\n');
+
+    const systemPrompt = `You are a news editor. Compare the NEW ARTICLE against EXISTING EVENTS and determine if they are about the same story.
+
+EXISTING EVENTS (from last 48 hours):
+${eventsContext}
+
+Analyze the NEW ARTICLE and determine:
+1. Is it about the SAME EVENT as one of the existing events? (same incident, same people, same topic)
+2. If yes, does it contain NEW INFORMATION or is it a DUPLICATE?
+
+Respond in JSON format:
+{
+  "matchType": "new" | "update" | "duplicate",
+  "matchedEventId": "event UUID if matched, null if new",
+  "confidence": 0.0-1.0,
+  "reason": "brief explanation"
+}
+
+- "new": Completely different story, create new event
+- "update": Same story but contains new information (new details, updated numbers, developments)
+- "duplicate": Same story with no new information`;
+
+    const response = await openai.chat.completions.create({
+      model: apiConfig.deepseek.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `NEW ARTICLE:\nTitle: ${articleTitle}\nSummary: ${articleSummary}` }
+      ],
+      max_tokens: 300,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(response.choices[0].message.content);
+    return {
+      matchType: result.matchType || 'new',
+      eventId: result.matchedEventId || null,
+      confidence: result.confidence || 0.5,
+      reason: result.reason || ''
+    };
+  } catch (error) {
+    console.error("❌ Event matching error:", error.message);
+    return { matchType: 'new', confidence: 0.5 };
+  }
+}
+
+/**
+ * Merge new article information into existing event summary
+ */
+async function updateEventSummary(existingTitle, existingSummary, newArticleTitle, newArticleSummary) {
+  if (!apiConfig.deepseek.apiKey) {
+    return { title: existingTitle, summary: existingSummary };
+  }
+
+  try {
+    const systemPrompt = `You are a news editor. Update an existing news event summary with new information from a new article.
+
+RULES:
+1. Keep the summary concise (150-200 words max)
+2. Add only NEW information not already in the existing summary
+3. Update any outdated facts (e.g., death tolls, dates)
+4. Maintain chronological flow
+5. Keep the same language as the original
+
+Respond in JSON:
+{
+  "title": "Updated headline reflecting latest developments",
+  "summary": "Updated summary incorporating new information"
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: apiConfig.deepseek.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `EXISTING EVENT:\nTitle: ${existingTitle}\nSummary: ${existingSummary}\n\nNEW ARTICLE:\nTitle: ${newArticleTitle}\nSummary: ${newArticleSummary}`
+        }
+      ],
+      max_tokens: 500,
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(response.choices[0].message.content);
+    return {
+      title: result.title || existingTitle,
+      summary: result.summary || existingSummary
+    };
+  } catch (error) {
+    console.error("❌ Event update error:", error.message);
+    return { title: existingTitle, summary: existingSummary };
+  }
+}
+
 module.exports = {
   summarizeAndCategorize,
   translateArticle,
   translateAndSummarize, // Legacy
   explainTopic,
+  matchArticleToEvent,
+  updateEventSummary,
 };
