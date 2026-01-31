@@ -138,86 +138,110 @@ app.get('/api/health', async (req, res) => {
 
 /**
  * GET /api/news
- * Get latest news - translates on-the-fly based on lang parameter
+ * Get latest news - returns articles with AI summary, translates on request
+ *
+ * Flow:
+ * 1. Fetch articles from DB (already summarized & categorized)
+ * 2. If lang != 'en', translate the requested page only
+ * 3. Return translated articles
  */
 app.get('/api/news', async (req, res) => {
   try {
-    const { limit, offset, category, region, lang = 'sv' } = req.query;
+    const { limit = 20, offset = 0, category, region, lang = 'sv' } = req.query;
     const { translateArticle } = require('./aiService');
+    const safeLimit = Math.min(parseInt(limit) || 20, 50);
+    const safeOffset = parseInt(offset) || 0;
 
-    // Check cache first
-    const cacheKey = `news_${category || 'all'}_${region || 'all'}_${lang}`;
-    let articles = cache.get(cacheKey);
+    // Check cache first (with language-specific key)
+    const cacheKey = `news_${category || 'all'}_${region || 'all'}_${lang}_${safeOffset}_${safeLimit}`;
+    let cachedArticles = cache.get(cacheKey);
 
-    if (!articles) {
-      console.log(`Cache miss - fetching from DB (lang: ${lang})`);
-
-      let query = db.select().from(articlesTable).orderBy(desc(articlesTable.pubDate)).limit(100);
-
-      // Basic filtering
-      if (category) query = query.where(eq(articlesTable.category, category));
-      if (region) query = query.where(eq(articlesTable.region, region));
-
-      const dbArticles = await query;
-
-      if (dbArticles.length > 0) {
-        // Fetch sources for name mapping
-        const sources = await db.select().from(rssSources);
-        const sourceMap = new Map(sources.map(s => [s.code, s.name]));
-
-        // Process articles - translate if needed
-        articles = await Promise.all(dbArticles.map(async (a) => {
-          let titleTranslated = a.title;
-          let summaryTranslated = a.summarySv || a.description;
-          let isTranslated = false;
-
-          // Translate if language requested is not English and article not already translated
-          if (lang !== 'en' && lang !== a.language) {
-            try {
-              const translated = await translateArticle(a.title, a.summarySv || a.description, lang);
-              titleTranslated = translated.title;
-              summaryTranslated = translated.summary;
-              isTranslated = true;
-            } catch (err) {
-              console.error(`Translation error for article ${a.id}:`, err.message);
-            }
-          }
-
-          return {
-            id: a.id,
-            articleHash: a.articleHash,
-            title: a.title || "No Title",
-            titleSv: titleTranslated, // Translated title (or original if lang=en)
-            summarySv: summaryTranslated, // Translated summary
-            description: a.description || "",
-            link: a.link || "#",
-            pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
-            createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
-            source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
-            sourceCode: a.sourceCode,
-            author: a.author || null,
-            category: a.category || "general",
-            region: a.region || "global",
-            readingTime: a.readingTime || "2 min",
-            imageUrl: a.imageUrl || null,
-            isBreaking: !!a.isBreaking,
-            isTranslated: isTranslated
-          };
-        }));
-
-        // Cache translated results for 5 minutes
-        cache.set(cacheKey, articles, 300);
-      } else {
-        // Fallback to fetch from sources if DB empty (cold start)
-        console.log('DB empty - triggering fetch from sources');
-        refreshNews(); // Async trigger
-        articles = swedishMockArticles;
-      }
+    if (cachedArticles) {
+      return res.json({ status: 'success', data: cachedArticles });
     }
 
-    const paginatedData = paginate(articles, limit, offset);
-    res.json({ status: 'success', data: paginatedData });
+    console.log(`Fetching articles (lang: ${lang}, limit: ${safeLimit}, offset: ${safeOffset})`);
+
+    // Build query
+    let query = db.select().from(articlesTable).orderBy(desc(articlesTable.pubDate));
+    if (category) query = query.where(eq(articlesTable.category, category));
+    if (region) query = query.where(eq(articlesTable.region, region));
+
+    const allArticles = await query;
+
+    if (allArticles.length === 0) {
+      console.log('DB empty - triggering fetch from sources');
+      refreshNews();
+      return res.json({ status: 'success', data: { articles: swedishMockArticles, pagination: { total: 2, limit: safeLimit, offset: safeOffset, hasMore: false } } });
+    }
+
+    // Fetch sources for name mapping
+    const sources = await db.select().from(rssSources);
+    const sourceMap = new Map(sources.map(s => [s.code, s.name]));
+
+    // Paginate first, then translate only the page
+    const pageArticles = allArticles.slice(safeOffset, safeOffset + safeLimit);
+    const total = allArticles.length;
+
+    // Translate articles if needed (only the current page)
+    const translatedArticles = await Promise.all(pageArticles.map(async (a) => {
+      let titleTranslated = a.title;
+      let summaryTranslated = a.summarySv || a.description;
+      let isTranslated = false;
+
+      // Only translate if:
+      // 1. Language is not English (original)
+      // 2. Article is not already in the target language
+      if (lang !== 'en') {
+        try {
+          const translated = await translateArticle(a.title, a.summarySv || a.description, lang);
+          titleTranslated = translated.title;
+          summaryTranslated = translated.summary;
+          isTranslated = true;
+        } catch (err) {
+          console.error(`Translation error for article ${a.id}:`, err.message);
+          // Keep original on error
+        }
+      }
+
+      return {
+        id: a.id,
+        articleHash: a.articleHash,
+        title: a.title || "No Title",
+        titleSv: titleTranslated,
+        summarySv: summaryTranslated,
+        description: a.description || "",
+        link: a.link || "#",
+        pubDate: a.pubDate ? a.pubDate.toISOString() : new Date().toISOString(),
+        createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
+        source: sourceMap.get(a.sourceCode) || a.sourceCode || "Unknown Source",
+        sourceCode: a.sourceCode,
+        author: a.author || null,
+        category: a.category || "general",
+        region: a.region || "global",
+        readingTime: a.readingTime || "2 min",
+        imageUrl: a.imageUrl || null,
+        isBreaking: !!a.isBreaking,
+        isTranslated: isTranslated
+      };
+    }));
+
+    const result = {
+      articles: translatedArticles,
+      pagination: {
+        total: total,
+        limit: safeLimit,
+        offset: safeOffset,
+        hasMore: safeOffset + safeLimit < total
+      }
+    };
+
+    // Cache for 10 minutes
+    cache.set(cacheKey, result, 600);
+
+    res.json({ status: 'success', data: result });
   } catch (error) {
+    console.error('Error fetching news:', error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 });
