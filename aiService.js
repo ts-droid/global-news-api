@@ -14,12 +14,12 @@ const { eq, inArray } = require("drizzle-orm");
 const VALID_CATEGORIES = ['world', 'politics', 'sports', 'tech', 'business', 'science', 'climate', 'culture'];
 
 // STEP 1: Summarize and categorize (keep original language)
-const FALLBACK_SUMMARIZE_INSTRUCTIONS = `You are a professional news editor. Your task is to:
-1. Create a concise headline (keep the original language)
-2. Summarize the content in 2-3 paragraphs (100-150 words total, keep original language)
+const FALLBACK_SUMMARIZE_INSTRUCTIONS = `You are a professional news journalist writing a news summary. Your task is to:
+1. Create a concise, informative headline (keep the original language)
+2. Write a DIRECT summary of WHAT HAPPENED - NOT a description of the article
 3. Maintain an objective, journalistic tone
 4. Extract ALL specific details: names, places, numbers, dates
-5. CATEGORIZE the article into ONE of these categories based on content:
+5. CATEGORIZE the article into ONE of these categories:
    - world: International news, geopolitics, diplomacy
    - politics: Politics, elections, government, laws
    - sports: Sports, athletics, competitions, matches
@@ -28,18 +28,22 @@ const FALLBACK_SUMMARIZE_INSTRUCTIONS = `You are a professional news editor. You
    - science: Science, research, medicine, space
    - climate: Climate, environment, weather, natural disasters
    - culture: Culture, music, film, art, entertainment
-6. DETERMINE if this is a "Breaking News" event (extremely urgent, major impact, war/disaster/major political decisions).
+6. DETERMINE if this is "Breaking News" (extremely urgent, major impact).
 
-IMPORTANT:
-- NEVER write vague phrases like "a player", "two nations", "several countries" if you have the names
-- ALWAYS include specific names and numbers from the text
-- If the article lacks details, write briefly what is known
-- Choose the MOST fitting category based on the article's main topic
+CRITICAL RULES FOR SUMMARY:
+- Write WHAT HAPPENED, not "this article discusses..." or "the article explains..."
+- WRONG: "The article provides advice on how to avoid airline fees..."
+- CORRECT: "EasyJet has been criticized for high additional fees. Travelers can avoid extra costs by..."
+- WRONG: "This piece explores the implications of..."
+- CORRECT: "The new policy will affect 2 million people by requiring..."
+- ALWAYS use active voice and report the actual news
+- Include ALL specific names, numbers, and facts from the article
+- 100-150 words total in 2-3 paragraphs
 
 ALWAYS respond in this JSON format (nothing else):
 {
   "title": "Headline in original language",
-  "summary": "Summary in original language in 2-3 paragraphs",
+  "summary": "Direct summary of what happened, NOT a description of the article",
   "category": "one of: world, politics, sports, tech, business, science, climate, culture",
   "isBreaking": true/false
 }`;
@@ -164,18 +168,22 @@ async function translateArticle(title, summary, targetLanguage = 'sv') {
   const langName = languageNames[targetLanguage] || 'Swedish';
 
   try {
-    const systemPrompt = `You are a professional translator. Translate the following news headline and summary to ${langName}.
+    const systemPrompt = `You are a professional news translator. Translate the following news headline and summary to ${langName}.
 
-IMPORTANT:
-- Translate to natural, fluent ${langName}
-- Keep all proper nouns, names, and numbers
-- Maintain the journalistic tone
-- Keep the same structure and length
+CRITICAL RULES:
+1. Translate to natural, fluent ${langName}
+2. Keep all proper nouns, names, and numbers
+3. Maintain the journalistic tone
+4. If the summary describes the article instead of reporting news (e.g., "The article discusses...", "This piece explores..."), REWRITE it as direct news reporting
+5. The summary should tell WHAT HAPPENED, not describe what the article is about
+
+BAD (meta-description): "Artikeln ger råd om hur man undviker avgifter..."
+GOOD (direct news): "Resenärer kan undvika extra avgifter genom att..."
 
 ALWAYS respond in this JSON format (nothing else):
 {
   "title": "Translated headline in ${langName}",
-  "summary": "Translated summary in ${langName}"
+  "summary": "Translated summary as direct news reporting in ${langName}"
 }`;
 
     const response = await openai.chat.completions.create({
