@@ -11,12 +11,12 @@ const { aiPrompts } = require("./db/schema");
 const { eq, inArray } = require("drizzle-orm");
 
 // Valid categories for classification
-const VALID_CATEGORIES = ['world', 'politics', 'sports', 'tech', 'business', 'science', 'climate', 'culture'];
+const VALID_CATEGORIES = ['world', 'politics', 'sports', 'tech', 'business', 'science', 'local', 'culture'];
 
 // STEP 1: Summarize and categorize (keep original language)
-const FALLBACK_SUMMARIZE_INSTRUCTIONS = `You are a professional news journalist writing a news summary. Your task is to:
+const FALLBACK_SUMMARIZE_INSTRUCTIONS = `You are a professional news journalist writing a comprehensive news summary. Your task is to:
 1. Create a concise, informative headline (keep the original language)
-2. Write a DIRECT summary of WHAT HAPPENED - NOT a description of the article
+2. Write a DETAILED summary of WHAT HAPPENED - NOT a description of the article
 3. Maintain an objective, journalistic tone
 4. Extract ALL specific details: names, places, numbers, dates
 5. CATEGORIZE the article into ONE of these categories:
@@ -26,25 +26,39 @@ const FALLBACK_SUMMARIZE_INSTRUCTIONS = `You are a professional news journalist 
    - tech: Technology, IT, AI, smartphones, internet
    - business: Economy, finance, companies, stock market
    - science: Science, research, medicine, space
-   - climate: Climate, environment, weather, natural disasters
+   - local: Local/regional news, community events, Swedish news
    - culture: Culture, music, film, art, entertainment
 6. DETERMINE if this is "Breaking News" (extremely urgent, major impact).
 
-CRITICAL RULES FOR SUMMARY:
+CRITICAL RULES FOR SUMMARY LENGTH AND STRUCTURE:
+- MINIMUM 100 words, TARGET 150 words - this is MANDATORY
+- Split into 2-3 distinct paragraphs
+- First paragraph: The main news (who, what, when, where)
+- Second paragraph: Context, background, or additional details
+- Third paragraph (if applicable): Implications, reactions, or future outlook
+
+CRITICAL RULES FOR CONTENT:
 - Write WHAT HAPPENED, not "this article discusses..." or "the article explains..."
 - WRONG: "The article provides advice on how to avoid airline fees..."
-- CORRECT: "EasyJet has been criticized for high additional fees. Travelers can avoid extra costs by..."
+- CORRECT: "EasyJet has been criticized for high additional fees. Travelers can avoid extra costs by checking in online and bringing only cabin luggage."
 - WRONG: "This piece explores the implications of..."
-- CORRECT: "The new policy will affect 2 million people by requiring..."
+- CORRECT: "The new policy will affect 2 million people by requiring all citizens to register by December 2024. The government estimates implementation costs of €50 million."
 - ALWAYS use active voice and report the actual news
 - Include ALL specific names, numbers, and facts from the article
-- 100-150 words total in 2-3 paragraphs
+- If the original content is short, expand with relevant context
+
+EXAMPLE OF GOOD SUMMARY (138 words):
+"Swedish Prime Minister Ulf Kristersson announced new climate measures at today's press conference in Stockholm. The government will invest 5 billion SEK in green technology over the next three years.
+
+The investment package includes subsidies for electric vehicle purchases, funding for solar panel installations, and support for industrial decarbonization projects. The measures are expected to reduce Sweden's carbon emissions by 15% by 2030.
+
+Environmental organizations have praised the initiative, though some critics argue the measures don't go far enough. Opposition leader Magdalena Andersson called for even greater investments in public transportation. The proposals will be debated in Parliament next month, with a vote expected before the summer recess."
 
 ALWAYS respond in this JSON format (nothing else):
 {
   "title": "Headline in original language",
-  "summary": "Direct summary of what happened, NOT a description of the article",
-  "category": "one of: world, politics, sports, tech, business, science, climate, culture",
+  "summary": "Detailed 100-150 word summary in 2-3 paragraphs with actual news content",
+  "category": "one of: world, politics, sports, tech, business, science, local, culture",
   "isBreaking": true/false
 }`;
 
@@ -74,7 +88,7 @@ async function getCategoryAdditions(category) {
       tech: `For tech news: Explain the technology simply, name products and companies.`,
       business: `For business news: Include numbers (amounts, percentages) and company names.`,
       science: `For science news: Explain the discovery simply, name institutions.`,
-      climate: `For climate news: Include temperature/emission figures, name agreements.`,
+      local: `For local/regional news: Name the specific location, local authorities, and community impact.`,
       culture: `For culture news: Name artists, works, and events.`,
       default: `Include specific names, places, and dates. Be concrete.`,
     };
@@ -83,7 +97,7 @@ async function getCategoryAdditions(category) {
     if (normalizedCategory.includes("tech")) return fallbackAdditions.tech;
     if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) return fallbackAdditions.business;
     if (normalizedCategory.includes("science")) return fallbackAdditions.science;
-    if (normalizedCategory.includes("climate") || normalizedCategory.includes("environment")) return fallbackAdditions.climate;
+    if (normalizedCategory.includes("local") || normalizedCategory.includes("swedish") || normalizedCategory.includes("lokalt")) return fallbackAdditions.local;
     if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) return fallbackAdditions.culture;
     if (normalizedCategory.includes("politic")) return fallbackAdditions.politics;
     if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) return fallbackAdditions.world;
@@ -249,7 +263,7 @@ async function extractEntities(title, summary, category = 'general') {
     business: `Focus on: companies, CEOs, investors, stock exchanges, industries.`,
     tech: `Focus on: tech companies, founders, products, technologies, research institutions.`,
     science: `Focus on: researchers, universities, research institutions, scientific concepts.`,
-    climate: `Focus on: environmental organizations, scientists, affected regions, climate phenomena.`,
+    local: `Focus on: local authorities, community leaders, affected neighborhoods, regional organizations.`,
     culture: `Focus on: artists, performers, directors, venues, awards, cultural institutions.`,
     world: `Focus on: countries, leaders, international organizations, cities involved.`,
     default: `Focus on: key people, locations, organizations, and main topics.`
@@ -381,11 +395,23 @@ ${eventsContext}
 
 Analyze the NEW ARTICLE and determine if it belongs to an existing event.
 
-IMPORTANT MATCHING RULES:
-1. SPORTS: Articles about the SAME match/game/tournament final ARE the same event, even if they focus on different players (e.g., "Rybakina wins Australian Open" and "Sabalenka loses final" are SAME EVENT)
-2. POLITICS: Articles about the same political decision/meeting/vote are the same event
-3. DISASTERS: Articles about the same disaster (earthquake, flood, accident) are the same event
-4. FOCUS ON: same time period + same main subject = likely same event
+CRITICAL: BE AGGRESSIVE IN MATCHING! Most news articles about the same topic within 48 hours ARE related.
+
+MATCHING RULES - MATCH if ANY of these apply:
+1. SAME SUBJECT: Same person, company, team, country, or organization is the main focus
+2. SAME INCIDENT: Same attack, accident, disaster, match, election, meeting, or announcement
+3. SAME TIMEFRAME: Articles about the same ongoing situation within 48 hours
+4. SPORTS: ALL articles about the same match/game/tournament ARE the same event
+   - "Team A wins" and "Team B loses" = SAME EVENT (match them!)
+   - "Player X shines" and "Match recap" = SAME EVENT
+5. POLITICS: Same policy, decision, election, or political figure's actions = same event
+6. DISASTERS/ATTACKS: Same incident even if different aspects (casualties, response, investigation)
+7. BUSINESS: Same company announcement, merger, or financial news = same event
+
+Examples of SAME EVENT:
+- "Russia attacks Ukraine power grid" + "12 killed in Ukraine attack" = SAME (match as update)
+- "Trump wins election" + "Democrats react to Trump victory" = SAME (match as update)
+- "Apple announces iPhone" + "New iPhone features revealed" = SAME (match as update)
 
 Respond in JSON format:
 {
@@ -395,9 +421,9 @@ Respond in JSON format:
   "reason": "brief explanation"
 }
 
-- "new": Completely different story, create new event
-- "update": Same event/story but from different angle or with new details
-- "duplicate": Exact same information, no new details`;
+- "new": ONLY if genuinely different story/topic (not just different angle)
+- "update": Same story with different perspective, new details, or different source (MOST COMMON)
+- "duplicate": Nearly identical content with no new information`;
 
     const response = await openai.chat.completions.create({
       model: apiConfig.deepseek.model,
