@@ -340,10 +340,18 @@ app.get('/api/events', async (req, res) => {
         eventId: articlesTable.eventId,
         sourceCode: articlesTable.sourceCode,
         link: articlesTable.link,
+        pubDate: articlesTable.pubDate,
       }).from(articlesTable)
         .where(inArray(articlesTable.eventId, eventIds));
 
       console.log(`Found ${linkedArticles.length} articles linked to ${eventIds.length} events`);
+
+      // Sort by pubDate descending (newest first) so we get the latest article per source
+      linkedArticles.sort((a, b) => {
+        const dateA = a.pubDate ? new Date(a.pubDate) : new Date(0);
+        const dateB = b.pubDate ? new Date(b.pubDate) : new Date(0);
+        return dateB - dateA; // Newest first
+      });
 
       // Get source names mapping
       const allSources = await db.select({
@@ -352,14 +360,14 @@ app.get('/api/events', async (req, res) => {
       }).from(rssSources);
       const sourceNameMap = Object.fromEntries(allSources.map(s => [s.code, s.name]));
 
-      // Group by eventId and collect source details (ONE per source name)
+      // Group by eventId and collect source details (ONE per source name - the NEWEST one)
       for (const art of linkedArticles) {
         if (art.eventId) {
           if (!eventSourceDetails[art.eventId]) {
             eventSourceDetails[art.eventId] = [];
           }
           const sourceName = sourceNameMap[art.sourceCode] || art.sourceCode;
-          // Only keep ONE article per source (first one wins) - prevents "92 sources" for same newspaper
+          // Only keep ONE article per source (first one wins = newest since sorted) - prevents "92 sources" for same newspaper
           const existingSourceNames = new Set(eventSourceDetails[art.eventId].map(s => s.name));
           if (!existingSourceNames.has(sourceName)) {
             eventSourceDetails[art.eventId].push({

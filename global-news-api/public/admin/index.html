@@ -31,6 +31,9 @@
             <li data-view="prompts">
               <i class="fas fa-magic"></i> AI Prompter
             </li>
+            <li data-view="styleOverlays">
+              <i class="fas fa-palette"></i> Style Overlays
+            </li>
             <li data-view="stats">
               <i class="fas fa-chart-line"></i> Statistik
             </li>
@@ -127,7 +130,35 @@
           </div>
           <button type="submit" class="btn btn-full">Fortsätt</button>
         </form>
+        <div class="auth-links">
+          <a href="#" id="forgotPasswordLink">Glömt lösenord?</a>
+        </div>
         <div id="authError" class="error-msg hidden"></div>
+      </div>
+    </div>
+
+    <!-- Forgot Password Overlay -->
+    <div id="forgotPasswordOverlay" class="overlay hidden">
+      <div class="auth-card glass">
+        <h2>Återställ lösenord</h2>
+        <p class="auth-description">Ange din e-postadress så skickar vi en återställningslänk.</p>
+        <form id="forgotPasswordForm">
+          <div class="input-group">
+            <label>E-post</label>
+            <input
+              type="email"
+              id="forgotEmail"
+              required
+              placeholder="admin@example.com"
+            />
+          </div>
+          <button type="submit" class="btn btn-full">Skicka återställningslänk</button>
+        </form>
+        <div class="auth-links">
+          <a href="#" id="backToLoginLink">Tillbaka till inloggning</a>
+        </div>
+        <div id="forgotPasswordSuccess" class="success-msg hidden"></div>
+        <div id="forgotPasswordError" class="error-msg hidden"></div>
       </div>
     </div>
 

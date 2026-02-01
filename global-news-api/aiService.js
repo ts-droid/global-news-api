@@ -1,4 +1,7 @@
 const OpenAI = require("openai");
+const { db } = require("./db");
+const { aiStyleOverlays } = require("./db/schema");
+const { eq, and } = require("drizzle-orm");
 
 // Support multiple API key naming conventions
 // Priority: AI_INTEGRATION_DEEPSEEK_API_KEY > DEEPSEEK_API_KEY > AI_INTEGRATIONS_OPENROUTER_API_KEY
@@ -18,6 +21,11 @@ const AI_MODEL = useDeepSeekDirect ? "deepseek-chat" : "deepseek/deepseek-chat";
 
 console.log(`AI Service configured: ${useDeepSeekDirect ? 'DeepSeek Direct' : 'OpenRouter'}, Model: ${AI_MODEL}`);
 
+// Cache for style overlays (refresh every 5 minutes)
+let styleOverlayCache = {};
+let cacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 const BASE_INSTRUCTIONS = `Du är en professionell nyhetsjournalist som skriver på svenska. Din uppgift är att:
 1. Översätta nyhetsartiklar till flytande, naturlig svenska
 2. Sammanfatta innehållet i 2-3 koncisa stycken (100-150 ord totalt)
@@ -36,59 +44,94 @@ Svara ALLTID i följande JSON-format (inget annat):
   "summary": "Sammanfattning på svenska i 2-3 stycken"
 }`;
 
-const CATEGORY_PROMPTS = {
-  world: `${BASE_INSTRUCTIONS}\n\nVIKTIGT för världsnyheter: ... (porting logic from TS)`,
-  // ... adding others
+// Fallback category prompts (used if database is unavailable)
+const FALLBACK_PROMPTS = {
+  world: `VIKTIGT för världsnyheter: Namnge länderna, städerna och nyckelpersonerna.`,
+  politics: `VIKTIGT för politiska nyheter: Namnge politiker, partier och specifika beslut.`,
+  sports: `VIKTIGT för sportnyheter: Inkludera exakta resultat och namn på lag/spelare.`,
+  tech: `VIKTIGT för tekniknyheter: Förklara tekniken enkelt, nämn produkter och företag.`,
+  business: `VIKTIGT för ekonominyheter: Inkludera siffror (belopp, procent) och företagsnamn.`,
+  science: `VIKTIGT för vetenskapsnyheter: Förklara upptäckten enkelt, nämn institutioner.`,
+  climate: `VIKTIGT för klimatnyheter: Ange siffror för temperatur/utsläpp, nämn avtal.`,
+  culture: `VIKTIGT för kulturnyheter: Namnge artister, verk och evenemang.`,
+  local: `VIKTIGT för lokala nyheter: Namnge platser, personer och institutioner.`,
+  default: `Inkludera specifika namn, platser och datum. Var konkret.`,
 };
 
-// I will simplify and port the logic from aiTranslation.ts but in JS
-function getCategoryPrompt(category) {
-  const normalizedCategory = (category || "default").toLowerCase();
+/**
+ * Get style overlay from database (with caching)
+ */
+async function getStyleOverlay(categoryCode, language = 'sv') {
+  const cacheKey = `${categoryCode}_${language}`;
 
-  const prompts = {
-    world: `VIKTIGT för världsnyheter: Namnge länderna, städerna och nyckelpersonerna.`,
-    politics: `VIKTIGT för politiska nyheter: Namnge politiker, partier och specifika beslut.`,
-    sports: `VIKTIGT för sportnyheter: Inkludera exakta resultat och namn på lag/spelare.`,
-    tech: `VIKTIGT för tekniknyheter: Förklara tekniken enkelt, nämn produkter och företag.`,
-    business: `VIKTIGT för ekonominyheter: Inkludera siffror (belopp, procent) och företagsnamn.`,
-    science: `VIKTIGT för vetenskapsnyheter: Förklara upptäckten enkelt, nämn institutioner.`,
-    climate: `VIKTIGT för klimatnyheter: Ange siffror för temperatur/utsläpp, nämn avtal.`,
-    culture: `VIKTIGT för kulturnyheter: Namnge artister, verk och evenemang.`,
-    default: `Inkludera specifika namn, platser och datum. Var konkret.`,
-  };
+  // Check cache
+  if (Date.now() - cacheTimestamp < CACHE_TTL && styleOverlayCache[cacheKey]) {
+    return styleOverlayCache[cacheKey];
+  }
 
-  let specificPrompt = prompts.default;
-  if (normalizedCategory.includes("sport")) specificPrompt = prompts.sports;
-  else if (normalizedCategory.includes("tech")) specificPrompt = prompts.tech;
-  else if (
-    normalizedCategory.includes("business") ||
-    normalizedCategory.includes("econom")
-  )
-    specificPrompt = prompts.business;
-  else if (normalizedCategory.includes("science"))
-    specificPrompt = prompts.science;
-  else if (
-    normalizedCategory.includes("climate") ||
-    normalizedCategory.includes("environment")
-  )
-    specificPrompt = prompts.climate;
-  else if (
-    normalizedCategory.includes("culture") ||
-    normalizedCategory.includes("entertainment")
-  )
-    specificPrompt = prompts.culture;
-  else if (normalizedCategory.includes("politic"))
-    specificPrompt = prompts.politics;
-  else if (
-    normalizedCategory.includes("world") ||
-    normalizedCategory.includes("top")
-  )
-    specificPrompt = prompts.world;
+  try {
+    // Fetch from database
+    const [overlay] = await db.select()
+      .from(aiStyleOverlays)
+      .where(
+        and(
+          eq(aiStyleOverlays.categoryCode, categoryCode),
+          eq(aiStyleOverlays.language, language),
+          eq(aiStyleOverlays.isActive, true)
+        )
+      )
+      .limit(1);
 
-  return `${BASE_INSTRUCTIONS}\n\n${specificPrompt}`;
+    if (overlay) {
+      // Update cache
+      styleOverlayCache[cacheKey] = overlay.stylePrompt;
+      cacheTimestamp = Date.now();
+      return overlay.stylePrompt;
+    }
+  } catch (err) {
+    console.warn(`Failed to fetch style overlay for ${categoryCode}/${language}:`, err.message);
+  }
+
+  return null;
 }
 
-async function translateAndSummarize(title, content, category) {
+/**
+ * Normalize category to match database codes
+ */
+function normalizeCategory(category) {
+  const normalized = (category || "default").toLowerCase();
+
+  if (normalized.includes("sport")) return "sports";
+  if (normalized.includes("tech")) return "tech";
+  if (normalized.includes("business") || normalized.includes("econom")) return "business";
+  if (normalized.includes("science")) return "science";
+  if (normalized.includes("climate") || normalized.includes("environment")) return "science";
+  if (normalized.includes("culture") || normalized.includes("entertainment")) return "culture";
+  if (normalized.includes("politic")) return "politics";
+  if (normalized.includes("world") || normalized.includes("top")) return "world";
+  if (normalized.includes("local")) return "local";
+
+  return normalized;
+}
+
+/**
+ * Get the full prompt for a category (base + style overlay)
+ */
+async function getCategoryPrompt(category, language = 'sv') {
+  const normalizedCategory = normalizeCategory(category);
+
+  // Try to get style overlay from database
+  let styleOverlay = await getStyleOverlay(normalizedCategory, language);
+
+  // Fall back to hardcoded prompts if database unavailable
+  if (!styleOverlay) {
+    styleOverlay = FALLBACK_PROMPTS[normalizedCategory] || FALLBACK_PROMPTS.default;
+  }
+
+  return `${BASE_INSTRUCTIONS}\n\nSTYLE OVERLAY:\n${styleOverlay}`;
+}
+
+async function translateAndSummarize(title, content, category, language = 'sv') {
   const hasApiKey = deepseekKey || openrouterKey;
 
   if (!hasApiKey) {
@@ -97,7 +140,8 @@ async function translateAndSummarize(title, content, category) {
   }
 
   try {
-    const systemPrompt = getCategoryPrompt(category);
+    // Get category-specific prompt (now async, fetches from DB)
+    const systemPrompt = await getCategoryPrompt(category, language);
 
     const response = await aiClient.chat.completions.create({
       model: AI_MODEL,
