@@ -3,6 +3,16 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
+// Log version immediately on startup
+const packageJson = require('./package.json');
+console.log('');
+console.log('='.repeat(50));
+console.log(`🚀 NewsLens API v${packageJson.version}`);
+console.log(`📅 Started: ${new Date().toISOString()}`);
+console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log('='.repeat(50));
+console.log('');
+
 const cache = require('./newsCache');
 const { 
   fetchFromSources, 
@@ -114,8 +124,6 @@ const searchArticles = (articles, query) => {
  * GET /api/health
  * Health check endpoint
  */
-const packageJson = require('./package.json');
-
 app.get('/api/health', async (req, res) => {
   try {
     const sourcesCount = await db.select().from(rssSources);
@@ -1276,16 +1284,15 @@ const { ensureSchema } = require('./db/migrate');
 
 // Start server
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log('='.repeat(50));
-  console.log(`🚀 Global Intelligence News API (v${packageJson.version})`);
-  console.log('='.repeat(50));
-  
   // Ensure DB Schema
   await ensureSchema();
-  
-  console.log(`✓ Server running on port ${PORT}`);
-  console.log(`✓ AI Background Worker: Active`);
+
+  console.log('');
+  console.log('✅ Server ready!');
+  console.log(`   Port: ${PORT}`);
+  console.log(`   Background Worker: Active`);
   console.log('='.repeat(50));
+  console.log('');
 });
 
 module.exports = app;
