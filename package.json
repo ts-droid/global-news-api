@@ -1,6 +1,6 @@
 {
   "name": "global-news-api",
-  "version": "1.2.66",
+  "version": "1.2.67",
   "description": "Open-source backend service for global news aggregation from 48+ RSS feeds across all continents",
   "main": "server.js",
   "scripts": {

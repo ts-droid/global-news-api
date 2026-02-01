@@ -200,13 +200,27 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let currentOverlays = [];
+    let basePrompts = {}; // { category: prompt } - for base/category prompts
     let selectedCategory = 'world';
     let selectedLanguage = 'sv';
+    let showBasePromptEditor = false; // Toggle to show base prompt editor
 
     async function fetchStyleOverlays() {
         try {
-            const data = await apiFetch('/api/admin/style-overlays');
-            currentOverlays = data.data || [];
+            // Fetch both style overlays AND base prompts
+            const [overlaysData, promptsData] = await Promise.all([
+                apiFetch('/api/admin/style-overlays'),
+                apiFetch('/api/admin/prompts')
+            ]);
+
+            currentOverlays = overlaysData.data || [];
+
+            // Convert prompts array to object keyed by category
+            basePrompts = {};
+            (promptsData.data || []).forEach(p => {
+                basePrompts[p.category] = p.prompt;
+            });
+
             renderPromptsView();
         } catch (err) {
             console.error('Failed to fetch style overlays:', err);
@@ -230,7 +244,15 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = `
             <div class="prompts-layout">
                 <div class="panel glass prompts-sidebar">
-                    <h3>KATEGORIER</h3>
+                    <h3>GRUNDPROMPT</h3>
+                    <ul class="category-list">
+                        <li class="${showBasePromptEditor ? 'active' : ''} ${basePrompts['base'] ? 'has-prompt' : ''}" data-base="true">
+                            <i class="fas fa-cog"></i> Grundinställningar
+                            ${basePrompts['base'] ? '<span class="check-icon">✓</span>' : ''}
+                        </li>
+                    </ul>
+
+                    <h3 style="margin-top: 20px;">KATEGORIER</h3>
                     <div class="language-selector">
                         ${Object.entries(languageNames).map(([code, name]) => `
                             <button class="lang-btn ${code === selectedLanguage ? 'active' : ''}" data-lang="${code}">
@@ -242,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${allCategories.map(cat => {
                             const overlay = getOverlay(cat, selectedLanguage);
                             return `
-                                <li class="${cat === selectedCategory ? 'active' : ''} ${overlay ? 'has-prompt' : ''}" data-category="${cat}">
+                                <li class="${!showBasePromptEditor && cat === selectedCategory ? 'active' : ''} ${overlay ? 'has-prompt' : ''}" data-category="${cat}">
                                     ${categoryNames[cat]}
                                     ${overlay ? '<span class="check-icon">✓</span>' : ''}
                                 </li>
@@ -251,12 +273,57 @@ document.addEventListener('DOMContentLoaded', () => {
                     </ul>
                 </div>
                 <div class="panel glass prompts-editor">
-                    ${renderPromptEditor()}
+                    ${showBasePromptEditor ? renderBasePromptEditor() : renderPromptEditor()}
                 </div>
             </div>
         `;
 
         attachPromptsEventListeners();
+    }
+
+    function renderBasePromptEditor() {
+        const currentBasePrompt = basePrompts['base'] || '';
+
+        return `
+            <h2><i class="fas fa-cog"></i> Grundprompt</h2>
+            <p class="editor-subtitle">Denna prompt används som bas för ALL AI-bearbetning av nyheter</p>
+
+            <form id="basePromptForm">
+                <div class="input-group">
+                    <label>Grundprompt (gäller alla kategorier)</label>
+                    <textarea id="basePromptInput" rows="20"
+                        placeholder="Skriv grundinstruktioner för AI:n...">${escapeHtml(currentBasePrompt)}</textarea>
+                    <p class="input-help">
+                        <strong>Viktigt:</strong> Denna prompt körs för ALLA artiklar. Kategori-specifika tillägg läggs till efter denna.
+                        <br>Här definierar du grundläggande regler för översättning, sammanfattning, ton och struktur.
+                    </p>
+                </div>
+
+                <div class="prompt-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Spara grundprompt
+                    </button>
+                </div>
+            </form>
+
+            <div class="base-prompt-info" style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <h4 style="margin-bottom: 10px;"><i class="fas fa-info-circle"></i> Hur prompterna fungerar</h4>
+                <p style="font-size: 0.9em; color: var(--text-secondary); line-height: 1.6;">
+                    1. <strong>Grundprompt</strong> (denna) - Körs först för alla artiklar<br>
+                    2. <strong>Kategori-tillägg</strong> - Läggs till baserat på artikelns kategori och språk
+                </p>
+            </div>
+        `;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     function renderPromptEditor() {
@@ -304,24 +371,41 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.lang-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 selectedLanguage = btn.dataset.lang;
+                showBasePromptEditor = false;
                 renderPromptsView();
             });
         });
 
-        // Category list
+        // Category list - handle both base prompt and category clicks
         document.querySelectorAll('.category-list li').forEach(li => {
             li.addEventListener('click', () => {
-                selectedCategory = li.dataset.category;
+                if (li.dataset.base === 'true') {
+                    // Clicked on "Grundinställningar"
+                    showBasePromptEditor = true;
+                } else if (li.dataset.category) {
+                    // Clicked on a category
+                    showBasePromptEditor = false;
+                    selectedCategory = li.dataset.category;
+                }
                 renderPromptsView();
             });
         });
 
-        // Form submit
+        // Style overlay form submit
         const form = document.getElementById('promptForm');
         if (form) {
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 await savePrompt();
+            });
+        }
+
+        // Base prompt form submit
+        const baseForm = document.getElementById('basePromptForm');
+        if (baseForm) {
+            baseForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await saveBasePrompt();
             });
         }
 
@@ -333,6 +417,39 @@ document.addEventListener('DOMContentLoaded', () => {
                     await deletePrompt();
                 }
             });
+        }
+    }
+
+    async function saveBasePrompt() {
+        const prompt = document.getElementById('basePromptInput').value.trim();
+
+        if (!prompt) {
+            alert('Grundprompt kan inte vara tom');
+            return;
+        }
+
+        try {
+            const btn = document.querySelector('#basePromptForm button[type="submit"]');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sparar...';
+            }
+
+            await apiFetch('/api/admin/prompts', {
+                method: 'POST',
+                body: JSON.stringify({
+                    category: 'base',
+                    prompt
+                })
+            });
+
+            // Update local cache
+            basePrompts['base'] = prompt;
+
+            alert('Grundprompt sparad!');
+            renderPromptsView();
+        } catch (err) {
+            alert('Fel vid sparning: ' + err.message);
         }
     }
 
