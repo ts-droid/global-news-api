@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
             { id: 'tech', label: 'Teknik & Innovation' },
             { id: 'business', label: 'Ekonomi & Företag' },
             { id: 'science', label: 'Vetenskap' },
-            { id: 'climate', label: 'Klimat & Miljö' },
+            { id: 'local', label: 'Lokalt' },
             { id: 'culture', label: 'Kultur & Nöje' },
             { id: 'default', label: 'Standard (Övrigt)' }
         ];
