@@ -10,7 +10,7 @@ const { eq, and } = require('drizzle-orm');
 // APNs configuration
 const APNS_KEY_ID = process.env.APNS_KEY_ID;
 const APNS_TEAM_ID = process.env.APNS_TEAM_ID;
-const APNS_BUNDLE_ID = process.env.APNS_BUNDLE_ID || 'com.tsdroid.NewsLens';
+const APNS_BUNDLE_ID = process.env.APNS_BUNDLE_ID || 'RecomputeIT.NewsLens';
 const APNS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // Rate limiting: Max 1 push per 30 minutes for breaking news
