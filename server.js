@@ -352,17 +352,18 @@ app.get('/api/events', async (req, res) => {
       }).from(rssSources);
       const sourceNameMap = Object.fromEntries(allSources.map(s => [s.code, s.name]));
 
-      // Group by eventId and collect source details
+      // Group by eventId and collect source details (ONE per source name)
       for (const art of linkedArticles) {
         if (art.eventId) {
           if (!eventSourceDetails[art.eventId]) {
             eventSourceDetails[art.eventId] = [];
           }
-          // Avoid duplicates by URL
-          const existingUrls = new Set(eventSourceDetails[art.eventId].map(s => s.url));
-          if (!existingUrls.has(art.link)) {
+          const sourceName = sourceNameMap[art.sourceCode] || art.sourceCode;
+          // Only keep ONE article per source (first one wins) - prevents "92 sources" for same newspaper
+          const existingSourceNames = new Set(eventSourceDetails[art.eventId].map(s => s.name));
+          if (!existingSourceNames.has(sourceName)) {
             eventSourceDetails[art.eventId].push({
-              name: sourceNameMap[art.sourceCode] || art.sourceCode,
+              name: sourceName,
               url: art.link
             });
           }
