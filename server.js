@@ -537,13 +537,19 @@ app.get('/api/events', async (req, res) => {
       };
     }));
 
+    // Filter to only show translated events when requesting non-English
+    // This gives a cleaner UX - users only see properly translated content
+    const filteredEvents = lang !== 'en'
+      ? translatedEvents.filter(e => e.isTranslated)
+      : translatedEvents;
+
     const result = {
-      events: translatedEvents,
+      events: filteredEvents,
       pagination: {
-        total: total,
+        total: filteredEvents.length,
         limit: safeLimit,
         offset: safeOffset,
-        hasMore: safeOffset + safeLimit < total
+        hasMore: safeOffset + safeLimit < filteredEvents.length
       }
     };
 
