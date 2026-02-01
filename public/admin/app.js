@@ -190,82 +190,120 @@ document.addEventListener('DOMContentLoaded', () => {
         `).join('');
     }
 
-    // Prompts Management
+    // Prompts Management - Using Style Overlays API
+    const categoryNames = {
+        world: 'Världsnyheter',
+        politics: 'Politik',
+        sports: 'Sport',
+        tech: 'Teknik & Innovation',
+        business: 'Ekonomi & Företag',
+        science: 'Vetenskap',
+        local: 'Lokalt',
+        culture: 'Kultur & Nöje'
+    };
+
+    let styleOverlays = [];
+    let selectedCategory = null;
+    const selectedLanguage = 'sv'; // Default to Swedish
+
     async function fetchPrompts() {
-        const categories = [
-            { id: 'base', label: 'Grundinstruktioner (Base)' },
-            { id: 'world', label: 'Världsnyheter' },
-            { id: 'politics', label: 'Politik' },
-            { id: 'sports', label: 'Sport' },
-            { id: 'tech', label: 'Teknik & Innovation' },
-            { id: 'business', label: 'Ekonomi & Företag' },
-            { id: 'science', label: 'Vetenskap' },
-            { id: 'local', label: 'Lokalt' },
-            { id: 'culture', label: 'Kultur & Nöje' },
-            { id: 'default', label: 'Standard (Övrigt)' }
-        ];
+        const categories = Object.entries(categoryNames).map(([id, label]) => ({ id, label }));
 
         try {
-            const result = await apiFetch('/api/admin/prompts');
-            allPrompts = result.data;
+            const result = await apiFetch('/api/admin/style-overlays');
+            styleOverlays = result.data || [];
             renderPromptCategories(categories);
         } catch (err) {
-            console.error('Failed to fetch prompts:', err);
+            console.error('Failed to fetch style overlays:', err);
+            // Fallback to rendering categories without overlay data
+            renderPromptCategories(categories);
         }
     }
 
+    function getOverlay(categoryCode) {
+        return styleOverlays.find(o => o.categoryCode === categoryCode && o.language === selectedLanguage);
+    }
+
     function renderPromptCategories(categories) {
-        promptCategoryList.innerHTML = categories.map(cat => `
-            <li data-cat="${cat.id}" class="${editPromptCategory.value === cat.id ? 'active' : ''}">
-                ${cat.label}
-            </li>
-        `).join('');
+        promptCategoryList.innerHTML = categories.map(cat => {
+            const overlay = getOverlay(cat.id);
+            const hasPrompt = !!overlay;
+            return `
+                <li data-cat="${cat.id}" class="${selectedCategory === cat.id ? 'active' : ''} ${hasPrompt ? 'has-prompt' : ''}">
+                    ${cat.label}
+                    ${hasPrompt ? '<span style="color: var(--success); margin-left: auto;">✓</span>' : ''}
+                </li>
+            `;
+        }).join('');
 
         promptCategoryList.querySelectorAll('li').forEach(li => {
-            li.addEventListener('click', () => selectPromptCategory(li.dataset.cat, li.textContent.trim()));
+            li.addEventListener('click', () => selectPromptCategory(li.dataset.cat, categoryNames[li.dataset.cat]));
         });
     }
 
     function selectPromptCategory(category, label) {
+        selectedCategory = category;
         editPromptCategory.value = category;
-        
+
         // Update UI
         promptCategoryList.querySelectorAll('li').forEach(li => {
             li.classList.toggle('active', li.dataset.cat === category);
         });
 
-        editorHeader.innerHTML = `<h3>Inställningar för ${label}</h3>`;
+        editorHeader.innerHTML = `<h3>Inställningar för ${label}</h3><p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 8px;">Tillägg till basen för översättning till Svenska</p>`;
         editorPlaceholder.classList.add('hidden');
         promptEditorForm.classList.remove('hidden');
 
-        // Find existing prompt or default
-        const existing = allPrompts.find(p => p.category === category);
-        promptTextarea.value = existing ? existing.prompt : '';
+        // Find existing style overlay
+        const existing = getOverlay(category);
+        promptTextarea.value = existing ? existing.stylePrompt : '';
         promptSaveStatus.classList.add('hidden');
     }
 
     promptEditorForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const category = editPromptCategory.value;
-        const prompt = promptTextarea.value;
+        const stylePrompt = promptTextarea.value.trim();
+
+        if (!stylePrompt) {
+            alert('Prompten kan inte vara tom');
+            return;
+        }
 
         try {
             const btn = promptEditorForm.querySelector('button[type="submit"]');
             btn.disabled = true;
             btn.textContent = 'Sparar...';
 
-            await apiFetch('/api/admin/prompts', {
-                method: 'POST',
-                body: JSON.stringify({ category, prompt })
-            });
+            const existing = getOverlay(category);
 
-            // Update local state
-            const idx = allPrompts.findIndex(p => p.category === category);
-            if (idx > -1) {
-                allPrompts[idx].prompt = prompt;
+            if (existing) {
+                // Update existing
+                await apiFetch(`/api/admin/style-overlays/${existing.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ stylePrompt, isActive: true })
+                });
+                existing.stylePrompt = stylePrompt;
             } else {
-                allPrompts.push({ category, prompt });
+                // Create new
+                const result = await apiFetch('/api/admin/style-overlays', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        categoryCode: category,
+                        language: selectedLanguage,
+                        name: `${categoryNames[category]} - Svenska`,
+                        stylePrompt
+                    })
+                });
+                styleOverlays.push(result.data);
             }
+
+            // Refresh category list to show checkmarks
+            renderPromptCategories(Object.entries(categoryNames).map(([id, label]) => ({ id, label })));
+            // Re-select to keep active state
+            promptCategoryList.querySelectorAll('li').forEach(li => {
+                li.classList.toggle('active', li.dataset.cat === category);
+            });
 
             promptSaveStatus.classList.remove('hidden');
             setTimeout(() => promptSaveStatus.classList.add('hidden'), 3000);
