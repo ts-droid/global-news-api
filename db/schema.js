@@ -42,6 +42,21 @@ const aiPrompts = pgTable("ai_prompts", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// AI Style Overlays - category+language specific style instructions
+const aiStyleOverlays = pgTable("ai_style_overlays", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  categoryCode: varchar("category_code", { length: 50 }).notNull(),
+  language: varchar("language", { length: 10 }).notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  stylePrompt: text("style_prompt").notNull(),
+  description: text("description"),
+  exampleInput: text("example_input"),
+  exampleOutput: text("example_output"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // News Events - Groups related articles about the same story
 const newsEvents = pgTable("news_events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -174,6 +189,7 @@ module.exports = {
   adminUsers,
   rssSources,
   aiPrompts,
+  aiStyleOverlays,
   newsEvents,
   articles,
   tags,

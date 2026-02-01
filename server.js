@@ -31,7 +31,7 @@ const {
   verify2FA 
 } = require('./adminAuth');
 const { db } = require('./db');
-const { adminUsers, rssSources, aiPrompts, articles: articlesTable, newsEvents, tags, eventTags, eventTranslations } = require('./db/schema');
+const { adminUsers, rssSources, aiPrompts, aiStyleOverlays, articles: articlesTable, newsEvents, tags, eventTags, eventTranslations } = require('./db/schema');
 const { eq, desc, inArray, and, isNull } = require('drizzle-orm');
 
 const swedishMockArticles = [
@@ -1269,6 +1269,231 @@ app.post('/api/admin/push/send', authenticateAdmin, async (req, res) => {
       status: 'error',
       message: error.message
     });
+  }
+});
+
+// ============================================
+// AI STYLE OVERLAYS ADMIN ROUTES
+// ============================================
+
+/**
+ * GET /api/admin/style-overlays
+ * Get all style overlays (optionally filtered by language or category)
+ */
+app.get('/api/admin/style-overlays', authenticateAdmin, async (req, res) => {
+  try {
+    const { language, category } = req.query;
+
+    let conditions = [];
+    if (language) {
+      conditions.push(eq(aiStyleOverlays.language, language));
+    }
+    if (category) {
+      conditions.push(eq(aiStyleOverlays.categoryCode, category));
+    }
+
+    let query = db.select().from(aiStyleOverlays);
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+
+    const overlays = await query.orderBy(aiStyleOverlays.categoryCode, aiStyleOverlays.language);
+
+    res.json({
+      status: 'success',
+      data: overlays
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/style-overlays/:categoryCode/:language
+ * Get a specific style overlay
+ */
+app.get('/api/admin/style-overlays/:categoryCode/:language', authenticateAdmin, async (req, res) => {
+  try {
+    const { categoryCode, language } = req.params;
+
+    const [overlay] = await db.select()
+      .from(aiStyleOverlays)
+      .where(
+        and(
+          eq(aiStyleOverlays.categoryCode, categoryCode),
+          eq(aiStyleOverlays.language, language)
+        )
+      )
+      .limit(1);
+
+    if (!overlay) {
+      return res.status(404).json({ status: 'error', message: 'Style overlay not found' });
+    }
+
+    res.json({
+      status: 'success',
+      data: overlay
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/style-overlays
+ * Create a new style overlay
+ */
+app.post('/api/admin/style-overlays', authenticateAdmin, async (req, res) => {
+  try {
+    const { categoryCode, language, name, stylePrompt, description, exampleInput, exampleOutput } = req.body;
+
+    if (!categoryCode || !language || !name || !stylePrompt) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'categoryCode, language, name, and stylePrompt are required'
+      });
+    }
+
+    // Check if already exists
+    const [existing] = await db.select()
+      .from(aiStyleOverlays)
+      .where(
+        and(
+          eq(aiStyleOverlays.categoryCode, categoryCode),
+          eq(aiStyleOverlays.language, language)
+        )
+      )
+      .limit(1);
+
+    if (existing) {
+      return res.status(409).json({
+        status: 'error',
+        message: 'A style overlay for this category and language already exists'
+      });
+    }
+
+    const [overlay] = await db.insert(aiStyleOverlays)
+      .values({
+        categoryCode,
+        language,
+        name,
+        stylePrompt,
+        description,
+        exampleInput,
+        exampleOutput,
+        isActive: true
+      })
+      .returning();
+
+    res.json({
+      status: 'success',
+      data: overlay,
+      message: 'Style overlay created'
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/style-overlays/:id
+ * Update a style overlay
+ */
+app.put('/api/admin/style-overlays/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, stylePrompt, description, exampleInput, exampleOutput, isActive } = req.body;
+
+    const updates = { updatedAt: new Date() };
+    if (name !== undefined) updates.name = name;
+    if (stylePrompt !== undefined) updates.stylePrompt = stylePrompt;
+    if (description !== undefined) updates.description = description;
+    if (exampleInput !== undefined) updates.exampleInput = exampleInput;
+    if (exampleOutput !== undefined) updates.exampleOutput = exampleOutput;
+    if (isActive !== undefined) updates.isActive = isActive;
+
+    const [overlay] = await db.update(aiStyleOverlays)
+      .set(updates)
+      .where(eq(aiStyleOverlays.id, id))
+      .returning();
+
+    if (!overlay) {
+      return res.status(404).json({ status: 'error', message: 'Style overlay not found' });
+    }
+
+    res.json({
+      status: 'success',
+      data: overlay,
+      message: 'Style overlay updated'
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * DELETE /api/admin/style-overlays/:id
+ * Delete a style overlay
+ */
+app.delete('/api/admin/style-overlays/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [deleted] = await db.delete(aiStyleOverlays)
+      .where(eq(aiStyleOverlays.id, id))
+      .returning();
+
+    if (!deleted) {
+      return res.status(404).json({ status: 'error', message: 'Style overlay not found' });
+    }
+
+    res.json({
+      status: 'success',
+      message: 'Style overlay deleted'
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/style-overlay/:categoryCode/:language
+ * Public endpoint to get active style overlay (for AI service)
+ */
+app.get('/api/style-overlay/:categoryCode/:language', async (req, res) => {
+  try {
+    const { categoryCode, language } = req.params;
+
+    const [overlay] = await db.select()
+      .from(aiStyleOverlays)
+      .where(
+        and(
+          eq(aiStyleOverlays.categoryCode, categoryCode),
+          eq(aiStyleOverlays.language, language),
+          eq(aiStyleOverlays.isActive, true)
+        )
+      )
+      .limit(1);
+
+    if (!overlay) {
+      // Return default style if none found
+      return res.json({
+        status: 'success',
+        data: {
+          categoryCode,
+          language,
+          stylePrompt: 'Inkludera specifika namn, platser och datum. Var konkret och tydlig.',
+          isDefault: true
+        }
+      });
+    }
+
+    res.json({
+      status: 'success',
+      data: overlay
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
   }
 });
 
