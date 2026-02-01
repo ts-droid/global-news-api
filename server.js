@@ -524,8 +524,8 @@ app.get('/api/events', async (req, res) => {
       return {
         id: e.id,
         title: e.title,
-        titleSv: titleTranslated,
-        summarySv: summaryTranslated,
+        titleSv: isTranslated ? titleTranslated : null, // Only set if actually translated
+        summarySv: isTranslated ? summaryTranslated : null,
         description: e.summary,
         pubDate: e.firstReportedAt ? e.firstReportedAt.toISOString() : new Date().toISOString(),
         lastUpdatedAt: e.lastUpdatedAt ? e.lastUpdatedAt.toISOString() : new Date().toISOString(),
