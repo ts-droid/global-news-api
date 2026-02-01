@@ -19,28 +19,23 @@ let lastBreakingNewsPush = 0;
 
 /**
  * Create APNs JWT token for authentication
- * Uses ES256 algorithm with the .p8 key file
+ * Uses ES256 algorithm with the private key from environment variable
  */
 function createAPNsToken() {
   if (!APNS_KEY_ID || !APNS_TEAM_ID) {
-    console.warn('APNs credentials not configured');
+    console.warn('APNs credentials not configured (missing APNS_KEY_ID or APNS_TEAM_ID)');
+    return null;
+  }
+
+  // Get private key from environment variable
+  const privateKey = process.env.APNS_PRIVATE_KEY;
+  if (!privateKey) {
+    console.warn('APNs private key not configured (missing APNS_PRIVATE_KEY)');
     return null;
   }
 
   try {
     const jwt = require('jsonwebtoken');
-    const fs = require('fs');
-    const path = require('path');
-
-    // Read the .p8 key file
-    const keyPath = process.env.APNS_KEY_PATH || path.join(__dirname, 'apns-key.p8');
-
-    if (!fs.existsSync(keyPath)) {
-      console.warn(`APNs key file not found at ${keyPath}`);
-      return null;
-    }
-
-    const privateKey = fs.readFileSync(keyPath, 'utf8');
 
     const token = jwt.sign(
       {},
