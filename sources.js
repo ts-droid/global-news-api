@@ -62,7 +62,7 @@ const newsSources = [
     region: 'africa',
     country: 'MULTI',
     language: 'en',
-    rssUrl: 'https://allafrica.com/tools/headlines/rss.html',
+    rssUrl: 'https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf',
     website: 'https://allafrica.com'
   },
   {
@@ -122,7 +122,7 @@ const newsSources = [
     region: 'africa',
     country: 'ZA',
     language: 'en',
-    rssUrl: 'https://feeds.news24.com/articles/news24/TopStories/rss',
+    rssUrl: 'https://www.news24.com/rss',
     website: 'https://www.news24.com'
   },
 
@@ -154,7 +154,7 @@ const newsSources = [
     region: 'asia',
     country: 'JP',
     language: 'en',
-    rssUrl: 'https://www3.nhk.or.jp/nhkworld/en/news/rss.xml',
+    rssUrl: 'https://www3.nhk.or.jp/rss/news/cat0.xml',
     website: 'https://www3.nhk.or.jp/nhkworld/en/news/'
   },
   {
@@ -266,7 +266,7 @@ const newsSources = [
     region: 'north-america',
     country: 'CA',
     language: 'en',
-    rssUrl: 'https://www.theglobeandmail.com/arc/outboundfeeds/rss/',
+    rssUrl: 'https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/canada/',
     website: 'https://www.theglobeandmail.com'
   },
   {
@@ -276,7 +276,7 @@ const newsSources = [
     region: 'north-america',
     country: 'US',
     language: 'en',
-    rssUrl: 'https://feeds.apnews.com/rss/apf-topnews',
+    rssUrl: 'https://rsshub.app/apnews/topics/ap-top-news',
     website: 'https://apnews.com'
   },
 
@@ -292,14 +292,14 @@ const newsSources = [
     website: 'https://www.batimes.com.ar'
   },
   {
-    code: 'SA-BR',
-    name: 'Brazil Reports',
+    code: 'SA-RA',
+    name: 'Rio Times',
     category: 'international',
     region: 'south-america',
     country: 'BR',
     language: 'en',
-    rssUrl: 'https://brazilian.report/feed/',
-    website: 'https://brazilian.report'
+    rssUrl: 'https://riotimesonline.com/feed/',
+    website: 'https://riotimesonline.com'
   },
   {
     code: 'SA-MND',
@@ -322,14 +322,14 @@ const newsSources = [
     website: 'https://english.elpais.com'
   },
   {
-    code: 'SA-LAND',
-    name: 'Latin America News Dispatch',
+    code: 'SA-AS',
+    name: 'Americas Quarterly',
     category: 'international',
     region: 'south-america',
     country: 'MULTI',
     language: 'en',
-    rssUrl: 'https://latindispatch.com/feed/',
-    website: 'https://latindispatch.com'
+    rssUrl: 'https://www.americasquarterly.org/feed/',
+    website: 'https://www.americasquarterly.org'
   },
   {
     code: 'SA-IC',
@@ -355,12 +355,12 @@ const newsSources = [
   // Europe (5)
   {
     code: 'EU-R',
-    name: 'Reuters',
+    name: 'Reuters via Google News',
     category: 'international',
     region: 'europe',
     country: 'GB',
     language: 'en',
-    rssUrl: 'https://www.reutersagency.com/feed/',
+    rssUrl: 'https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US',
     website: 'https://www.reuters.com'
   },
   {
@@ -422,7 +422,7 @@ const newsSources = [
     region: 'middle-east',
     country: 'IL',
     language: 'en',
-    rssUrl: 'https://www.haaretz.com/cmlink/1.628752',
+    rssUrl: 'https://www.haaretz.com/srv/haaretz-latest-headlines-rss',
     website: 'https://www.haaretz.com'
   },
   {
@@ -464,7 +464,7 @@ const newsSources = [
     region: 'oceania',
     country: 'NZ',
     language: 'en',
-    rssUrl: 'https://www.nzherald.co.nz/arc/outboundfeeds/rss/',
+    rssUrl: 'https://www.nzherald.co.nz/arc/outboundfeeds/rss/section/nz/?outputType=xml',
     website: 'https://www.nzherald.co.nz'
   },
 
