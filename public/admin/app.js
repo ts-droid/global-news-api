@@ -4,18 +4,17 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentToken = localStorage.getItem('admin_token');
     let currentView = 'dashboard';
     let testPassed = false;
-    let allPrompts = [];
 
     // Elements
     const loginOverlay = document.getElementById('loginOverlay');
     const loginForm = document.getElementById('loginForm');
     const authError = document.getElementById('authError');
     const logoutBtn = document.getElementById('logoutBtn');
-    
+
     const views = document.querySelectorAll('.view');
     const sidebarItems = document.querySelectorAll('.sidebar li');
     const viewTitle = document.getElementById('viewTitle');
-    
+
     // Sources elements
     const sourcesTableBody = document.getElementById('sourcesTableBody');
     const addSourceBtn = document.getElementById('addSourceBtn');
@@ -26,15 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const testRssBtn = document.getElementById('testRssBtn');
     const testResult = document.getElementById('testResult');
     const saveSourceBtn = document.getElementById('saveSourceBtn');
-
-    // Prompts elements
-    const promptCategoryList = document.getElementById('promptCategoryList');
-    const promptEditorForm = document.getElementById('promptEditorForm');
-    const editorPlaceholder = document.getElementById('editorPlaceholder');
-    const editorHeader = document.getElementById('editorHeader');
-    const promptTextarea = document.getElementById('promptTextarea');
-    const editPromptCategory = document.getElementById('editPromptCategory');
-    const promptSaveStatus = document.getElementById('promptSaveStatus');
 
     // Initialize
     async function init() {
@@ -59,12 +49,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // View Management
     async function switchView(viewName) {
         currentView = viewName;
-        
+
         // Update sidebar
         sidebarItems.forEach(item => {
             item.classList.toggle('active', item.dataset.view === viewName);
         });
-        
+
         // Update Title
         const titles = {
             'dashboard': 'Dashboard',
@@ -91,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (viewName === 'sources') {
             await fetchSources();
         } else if (viewName === 'prompts') {
-            await fetchPrompts();
+            await fetchStyleOverlays();
         }
     }
 
@@ -131,10 +121,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const now = new Date();
                     const diffMs = now - date;
                     const diffMins = Math.floor(diffMs / 60000);
-                    
+
                     const time = date.toLocaleTimeString('sv-SE', {hour: '2-digit', minute:'2-digit'});
                     let timeDisplay = time;
-                    
+
                     // Only show relative time if it's positive and recent
                     if (diffMins >= 0 && diffMins < 60) {
                         timeDisplay += ` (${diffMins} min sedan)`;
@@ -142,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const hours = Math.floor(diffMins / 60);
                         timeDisplay += ` (${hours} tim sedan)`;
                     }
-                    
+
                     return `
                     <div class="activity-item">
                         <div class="activity-time">${timeDisplay}</div>
@@ -171,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderSourcesTable(sources) {
         if (!sourcesTableBody) return;
-        
+
         sourcesTableBody.innerHTML = sources.map(s => `
             <tr>
                 <td>
@@ -190,7 +180,9 @@ document.addEventListener('DOMContentLoaded', () => {
         `).join('');
     }
 
-    // Prompts Management - Using Style Overlays API
+    // ============================================
+    // AI Prompter - Style Overlays per kategori och språk
+    // ============================================
     const categoryNames = {
         world: 'Världsnyheter',
         politics: 'Politik',
@@ -202,119 +194,212 @@ document.addEventListener('DOMContentLoaded', () => {
         culture: 'Kultur & Nöje'
     };
 
-    let styleOverlays = [];
-    let selectedCategory = null;
-    const selectedLanguage = 'sv'; // Default to Swedish
+    const languageNames = {
+        sv: 'Svenska',
+        en: 'English'
+    };
 
-    async function fetchPrompts() {
-        const categories = Object.entries(categoryNames).map(([id, label]) => ({ id, label }));
+    let currentOverlays = [];
+    let selectedCategory = 'world';
+    let selectedLanguage = 'sv';
 
+    async function fetchStyleOverlays() {
         try {
-            const result = await apiFetch('/api/admin/style-overlays');
-            styleOverlays = result.data || [];
-            renderPromptCategories(categories);
+            const data = await apiFetch('/api/admin/style-overlays');
+            currentOverlays = data.data || [];
+            renderPromptsView();
         } catch (err) {
             console.error('Failed to fetch style overlays:', err);
-            // Fallback to rendering categories without overlay data
-            renderPromptCategories(categories);
+            const container = document.getElementById('promptsContainer');
+            if (container) {
+                container.innerHTML = `<div class="panel glass"><p class="error">Kunde inte ladda AI prompter: ${err.message}</p></div>`;
+            }
         }
     }
 
-    function getOverlay(categoryCode) {
-        return styleOverlays.find(o => o.categoryCode === categoryCode && o.language === selectedLanguage);
+    function getOverlay(categoryCode, language) {
+        return currentOverlays.find(o => o.categoryCode === categoryCode && o.language === language);
     }
 
-    function renderPromptCategories(categories) {
-        promptCategoryList.innerHTML = categories.map(cat => {
-            const overlay = getOverlay(cat.id);
-            const hasPrompt = !!overlay;
-            return `
-                <li data-cat="${cat.id}" class="${selectedCategory === cat.id ? 'active' : ''} ${hasPrompt ? 'has-prompt' : ''}">
-                    ${cat.label}
-                    ${hasPrompt ? '<span style="color: var(--success); margin-left: auto;">✓</span>' : ''}
-                </li>
-            `;
-        }).join('');
+    function renderPromptsView() {
+        const container = document.getElementById('promptsContainer');
+        if (!container) return;
 
-        promptCategoryList.querySelectorAll('li').forEach(li => {
-            li.addEventListener('click', () => selectPromptCategory(li.dataset.cat, categoryNames[li.dataset.cat]));
+        const allCategories = Object.keys(categoryNames);
+
+        container.innerHTML = `
+            <div class="prompts-layout">
+                <div class="panel glass prompts-sidebar">
+                    <h3>KATEGORIER</h3>
+                    <div class="language-selector">
+                        ${Object.entries(languageNames).map(([code, name]) => `
+                            <button class="lang-btn ${code === selectedLanguage ? 'active' : ''}" data-lang="${code}">
+                                ${name}
+                            </button>
+                        `).join('')}
+                    </div>
+                    <ul class="category-list">
+                        ${allCategories.map(cat => {
+                            const overlay = getOverlay(cat, selectedLanguage);
+                            return `
+                                <li class="${cat === selectedCategory ? 'active' : ''} ${overlay ? 'has-prompt' : ''}" data-category="${cat}">
+                                    ${categoryNames[cat]}
+                                    ${overlay ? '<span class="check-icon">✓</span>' : ''}
+                                </li>
+                            `;
+                        }).join('')}
+                    </ul>
+                </div>
+                <div class="panel glass prompts-editor">
+                    ${renderPromptEditor()}
+                </div>
+            </div>
+        `;
+
+        attachPromptsEventListeners();
+    }
+
+    function renderPromptEditor() {
+        const overlay = getOverlay(selectedCategory, selectedLanguage);
+        const langName = languageNames[selectedLanguage];
+
+        return `
+            <h2>Inställningar för ${categoryNames[selectedCategory]}</h2>
+            <p class="editor-subtitle">Tillägg till basen för översättning till ${langName}</p>
+
+            <form id="promptForm">
+                <div class="input-group">
+                    <label>Style Prompt (${langName})</label>
+                    <textarea id="stylePromptInput" rows="10"
+                        placeholder="Skriv instruktioner för hur AI:n ska skriva nyheter inom ${categoryNames[selectedCategory]}...">${overlay?.stylePrompt || ''}</textarea>
+                    <p class="input-help">
+                        Detta tillägg läggs till basens instruktioner och styr skrivstilen för ${categoryNames[selectedCategory].toLowerCase()}-artiklar.
+                        ${selectedLanguage !== 'sv' ? `<br><strong>Tips:</strong> Skriv på ${langName.toLowerCase()} för bästa resultat.` : ''}
+                    </p>
+                </div>
+
+                <div class="input-group">
+                    <label>Intern beskrivning (valfritt)</label>
+                    <input type="text" id="promptDescription"
+                        placeholder="Admin-anteckning om denna prompt..."
+                        value="${overlay?.description || ''}">
+                </div>
+
+                <div class="prompt-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Spara instruktioner
+                    </button>
+                    ${overlay ? `
+                        <button type="button" class="btn btn-danger" id="deletePromptBtn">
+                            <i class="fas fa-trash"></i> Ta bort
+                        </button>
+                    ` : ''}
+                </div>
+            </form>
+        `;
+    }
+
+    function attachPromptsEventListeners() {
+        // Language selector
+        document.querySelectorAll('.lang-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                selectedLanguage = btn.dataset.lang;
+                renderPromptsView();
+            });
         });
-    }
 
-    function selectPromptCategory(category, label) {
-        selectedCategory = category;
-        editPromptCategory.value = category;
-
-        // Update UI
-        promptCategoryList.querySelectorAll('li').forEach(li => {
-            li.classList.toggle('active', li.dataset.cat === category);
+        // Category list
+        document.querySelectorAll('.category-list li').forEach(li => {
+            li.addEventListener('click', () => {
+                selectedCategory = li.dataset.category;
+                renderPromptsView();
+            });
         });
 
-        editorHeader.innerHTML = `<h3>Inställningar för ${label}</h3><p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 8px;">Tillägg till basen för översättning till Svenska</p>`;
-        editorPlaceholder.classList.add('hidden');
-        promptEditorForm.classList.remove('hidden');
+        // Form submit
+        const form = document.getElementById('promptForm');
+        if (form) {
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await savePrompt();
+            });
+        }
 
-        // Find existing style overlay
-        const existing = getOverlay(category);
-        promptTextarea.value = existing ? existing.stylePrompt : '';
-        promptSaveStatus.classList.add('hidden');
+        // Delete button
+        const deleteBtn = document.getElementById('deletePromptBtn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', async () => {
+                if (confirm(`Är du säker på att du vill ta bort prompten för ${categoryNames[selectedCategory]} (${languageNames[selectedLanguage]})?`)) {
+                    await deletePrompt();
+                }
+            });
+        }
     }
 
-    promptEditorForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const category = editPromptCategory.value;
-        const stylePrompt = promptTextarea.value.trim();
+    async function savePrompt() {
+        const stylePrompt = document.getElementById('stylePromptInput').value.trim();
+        const description = document.getElementById('promptDescription').value.trim();
 
         if (!stylePrompt) {
-            alert('Prompten kan inte vara tom');
+            alert('Style prompt kan inte vara tom');
             return;
         }
 
+        const overlay = getOverlay(selectedCategory, selectedLanguage);
+
         try {
-            const btn = promptEditorForm.querySelector('button[type="submit"]');
-            btn.disabled = true;
-            btn.textContent = 'Sparar...';
-
-            const existing = getOverlay(category);
-
-            if (existing) {
-                // Update existing
-                await apiFetch(`/api/admin/style-overlays/${existing.id}`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ stylePrompt, isActive: true })
-                });
-                existing.stylePrompt = stylePrompt;
-            } else {
-                // Create new
-                const result = await apiFetch('/api/admin/style-overlays', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        categoryCode: category,
-                        language: selectedLanguage,
-                        name: `${categoryNames[category]} - Svenska`,
-                        stylePrompt
-                    })
-                });
-                styleOverlays.push(result.data);
+            const btn = document.querySelector('#promptForm button[type="submit"]');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sparar...';
             }
 
-            // Refresh category list to show checkmarks
-            renderPromptCategories(Object.entries(categoryNames).map(([id, label]) => ({ id, label })));
-            // Re-select to keep active state
-            promptCategoryList.querySelectorAll('li').forEach(li => {
-                li.classList.toggle('active', li.dataset.cat === category);
+            if (overlay) {
+                // Update existing
+                await apiFetch(`/api/admin/style-overlays/${overlay.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        stylePrompt,
+                        description,
+                        isActive: true
+                    })
+                });
+            } else {
+                // Create new
+                await apiFetch('/api/admin/style-overlays', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        categoryCode: selectedCategory,
+                        language: selectedLanguage,
+                        name: `${categoryNames[selectedCategory]} - ${languageNames[selectedLanguage]}`,
+                        stylePrompt,
+                        description
+                    })
+                });
+            }
+
+            // Refresh data
+            await fetchStyleOverlays();
+            alert('Sparad!');
+        } catch (err) {
+            alert('Fel vid sparning: ' + err.message);
+        }
+    }
+
+    async function deletePrompt() {
+        const overlay = getOverlay(selectedCategory, selectedLanguage);
+        if (!overlay) return;
+
+        try {
+            await apiFetch(`/api/admin/style-overlays/${overlay.id}`, {
+                method: 'DELETE'
             });
 
-            promptSaveStatus.classList.remove('hidden');
-            setTimeout(() => promptSaveStatus.classList.add('hidden'), 3000);
+            await fetchStyleOverlays();
         } catch (err) {
-            alert('Misslyckades att spara prompt: ' + err.message);
-        } finally {
-            const btn = promptEditorForm.querySelector('button[type="submit"]');
-            btn.disabled = false;
-            btn.textContent = 'Spara instruktioner';
+            alert('Fel vid borttagning: ' + err.message);
         }
-    });
+    }
 
     // Modal Handling (Add Source)
     addSourceBtn.addEventListener('click', () => {
@@ -332,7 +417,7 @@ document.addEventListener('DOMContentLoaded', () => {
     testRssBtn.addEventListener('click', async () => {
         const rssUrl = document.getElementById('sourceRssUrl').value;
         if (!rssUrl) return alert('Ange en RSS URL först');
-        
+
         testRssBtn.disabled = true;
         testRssBtn.textContent = 'Testar...';
         testResult.classList.remove('hidden');
@@ -344,7 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'POST',
                 body: JSON.stringify({ rssUrl })
             });
-            
+
             testResult.classList.add('success');
             testResult.innerHTML = `<i class="fas fa-check-circle"></i> OK! Hittade <strong>${result.data.itemCount}</strong> artiklar. <br/> "${result.data.title}"`;
             saveSourceBtn.disabled = false;

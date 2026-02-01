@@ -133,38 +133,10 @@
             </div>
           </section>
 
-          <!-- Prompts View -->
+          <!-- Prompts View - Rendered dynamically by JS -->
           <section id="promptsView" class="view hidden">
-            <div class="view-header">
-                <h2>AI Prompter & Inställningar</h2>
-            </div>
-            <div class="prompt-manager-grid">
-                <div class="panel glass prompt-sidebar">
-                    <h3>Kategorier</h3>
-                    <ul id="promptCategoryList" class="prompt-cat-list">
-                        <!-- Loaded via JS -->
-                    </ul>
-                </div>
-                <div class="panel glass prompt-editor">
-                    <div id="editorHeader" class="editor-header">
-                        <h3>Välj en kategori</h3>
-                    </div>
-                    <form id="promptEditorForm" class="hidden">
-                        <input type="hidden" id="editPromptCategory" />
-                        <div class="input-group">
-                            <label>Systeminstruktioner (Tillägg till basen)</label>
-                            <textarea id="promptTextarea" rows="12" placeholder="Skriv AI-instruktioner här..."></textarea>
-                        </div>
-                        <div class="modal-actions">
-                            <span id="promptSaveStatus" class="status-text hidden">Sparat!</span>
-                            <button type="submit" class="btn btn-primary">Spara instruktioner</button>
-                        </div>
-                    </form>
-                    <div id="editorPlaceholder" class="editor-placeholder">
-                        <i class="fas fa-magic"></i>
-                        <p>Välj en kategori till vänster för att redigera dess AI-instruktioner.</p>
-                    </div>
-                </div>
+            <div id="promptsContainer">
+              <!-- Will be rendered by renderPromptsView() -->
             </div>
           </section>
 

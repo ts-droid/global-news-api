@@ -15,6 +15,13 @@
       "when": 1769810000000,
       "tag": "0001_add_articles_table",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1769960822299,
+      "tag": "0002_odd_earthquake",
+      "breakpoints": true
     }
   ]
 }
