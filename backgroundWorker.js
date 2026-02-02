@@ -13,6 +13,118 @@ const AI_BATCH_SIZE = parseInt(process.env.AI_BATCH_SIZE) || 5;
 const AI_BATCH_DELAY_MS = parseInt(process.env.AI_BATCH_DELAY_MS) || 1000;
 const REFRESH_INTERVAL_MS = parseInt(process.env.REFRESH_INTERVAL_MS) || 15 * 60 * 1000;
 const EVENT_WINDOW_HOURS = 48; // Look back 48 hours for related events
+const MIN_WORDS_FOR_SUMMARY = 80; // Scrape fulltext if description has fewer words
+
+/**
+ * Scrape article content from URL
+ * Returns the main text content or null if scraping fails
+ */
+async function scrapeArticleContent(url) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; NewsLensBot/1.0; +https://newslens.app)',
+        'Accept': 'text/html,application/xhtml+xml',
+      }
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.log(`  ⚠️ Scrape failed: HTTP ${response.status}`);
+      return null;
+    }
+
+    const html = await response.text();
+
+    // Extract text content from common article containers
+    // Remove scripts, styles, nav, header, footer, ads
+    let text = html
+      // Remove unwanted tags and their content
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+      .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+      .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '')
+      .replace(/<form[^>]*>[\s\S]*?<\/form>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '');
+
+    // Try to find article content in common containers
+    const articleMatch = text.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+                         text.match(/<div[^>]*class="[^"]*article[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                         text.match(/<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                         text.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+
+    if (articleMatch) {
+      text = articleMatch[1];
+    }
+
+    // Remove remaining HTML tags
+    text = text.replace(/<[^>]+>/g, ' ');
+
+    // Decode HTML entities
+    text = text
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&[a-z]+;/gi, ' ');
+
+    // Clean up whitespace
+    text = text
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Check if we got meaningful content (at least 100 words)
+    const wordCount = text.split(/\s+/).length;
+    if (wordCount < 100) {
+      console.log(`  ⚠️ Scraped content too short (${wordCount} words)`);
+      return null;
+    }
+
+    // Limit to first ~2000 words to avoid token limits
+    const words = text.split(/\s+/).slice(0, 2000);
+    const result = words.join(' ');
+
+    console.log(`  ✓ Scraped ${words.length} words from article`);
+    return result;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log(`  ⚠️ Scrape timeout for ${url}`);
+    } else {
+      console.log(`  ⚠️ Scrape error: ${error.message}`);
+    }
+    return null;
+  }
+}
+
+/**
+ * Get content for summarization - scrapes if description is too short
+ */
+async function getArticleContent(article) {
+  const description = article.description || '';
+  const wordCount = description.split(/\s+/).filter(w => w.length > 0).length;
+
+  if (wordCount >= MIN_WORDS_FOR_SUMMARY) {
+    return description;
+  }
+
+  console.log(`  📄 Description too short (${wordCount} words), scraping fulltext...`);
+  const scrapedContent = await scrapeArticleContent(article.link);
+
+  if (scrapedContent) {
+    return scrapedContent;
+  }
+
+  // Fallback to original description
+  return description;
+}
 
 /**
  * Get recent events for matching (last 48 hours)
@@ -198,9 +310,12 @@ async function processArticlesBatch(articlesToProcess, sources) {
 
     const batchPromises = batch.map(async (article) => {
       try {
+        // Step 0: Get article content (scrape if description too short)
+        const articleContent = await getArticleContent(article);
+
         // Step 1: Summarize and categorize
         console.log(`  → Summarizing: "${article.title.substring(0, 50)}..."`);
-        const aiResult = await summarizeAndCategorize(article.title, article.description, article.category);
+        const aiResult = await summarizeAndCategorize(article.title, articleContent, article.category);
         console.log(`  ✓ Result: "${aiResult.title?.substring(0, 50)}..." (category: ${aiResult.category})`);
 
         // Step 2: Match against existing events
