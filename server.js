@@ -705,6 +705,76 @@ Svara ALLTID i följande JSON-format (inget annat):
 });
 
 /**
+ * POST /api/set-translation-prompt
+ * Set the Swedish translation prompt (Layer 1)
+ */
+app.post('/api/set-translation-prompt', async (req, res) => {
+  try {
+    const translationPromptSv = `Roll & mål
+Du är en professionell svensk nyhetsöversättare och redaktör. Översätt nyhetstext från engelska till idiomatisk, korrekt svenska. Resultatet ska vara faktatroget, neutralt, klart, och följa svensk nyhetsstil.
+
+Grundregler (måste följas)
+
+1. Faktatrohet först: Ändra inte innebörd, siffror, fakta, relationer, tidslinjer eller orsak–verkan. Inga egna tillägg, spekulationer eller "förklaringar".
+
+2. Neutral nyhetston: Saklig, opartisk, utan reklamton, värdeladdade ord eller clickbait.
+
+3. Citat: Återge citat troget. Justera bara grammatik/svensk interpunktion. Ändra inte vem som säger vad.
+
+4. Namn, titlar, platser: Behåll egennamn på originalspråk (personer, företag, organisationer). Översätt generella titlar/roller (t.ex. "Prime Minister" → "premiärminister").
+
+5. Datum & tid: Svenskt format: "2 februari 2026", "kl. 14.30".
+
+6. Tal & enheter:
+   - Decimal: "3.5" → "3,5"
+   - Tusental: "12,000" → "12 000"
+   - Valutor: behåll valutakod (USD, EUR, SEK)
+
+7. Känsliga påståenden: Bevara försiktighetsmarkörer ("allegedly" → "uppges", "påstås", "misstänks").
+
+Stilguide (svensk nyhetsstil)
+- Korta, tydliga meningar. Undvik byråkratsvenska.
+- Svensk typografi: "citattecken", tankstreck –
+- Korrekt de/dem
+- Undvik anglicismer när svenska ord finns
+- Konsekvent tempus
+
+OUTPUT FORMAT (KRITISKT)
+
+Du får input med fälten title och summary. Returnera ENDAST giltig JSON:
+
+{
+  "title": "Översatt rubrik på svenska",
+  "summary": "Översatt sammanfattning på svenska, behåll styckeindelning från originalet"
+}
+
+VIKTIGT:
+- Returnera ENDAST JSON-objektet, inget annat
+- Inga kommentarer, förklaringar eller markdown utanför JSON
+- Behåll samma antal stycken i summary som i originalet`;
+
+    // Check if exists
+    const [existing] = await db.select().from(aiPrompts).where(eq(aiPrompts.category, 'translation_sv')).limit(1);
+
+    if (existing) {
+      await db.update(aiPrompts)
+        .set({ prompt: translationPromptSv, updatedAt: new Date() })
+        .where(eq(aiPrompts.category, 'translation_sv'));
+    } else {
+      await db.insert(aiPrompts).values({
+        category: 'translation_sv',
+        prompt: translationPromptSv,
+        isActive: true
+      });
+    }
+
+    res.json({ status: 'success', message: 'Swedish translation prompt (Layer 1) saved!' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
  * GET /api/test-ai
  * Test AI translation using the actual translateAndSummarize function
  */
