@@ -200,10 +200,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let currentOverlays = [];
-    let basePrompts = {}; // { category: prompt } - for base/category prompts
+    let basePrompts = {}; // { category: prompt } - for base/category/translation prompts
     let selectedCategory = 'world';
     let selectedLanguage = 'sv';
-    let showBasePromptEditor = false; // Toggle to show base prompt editor
+    let currentEditorView = 'base'; // 'base', 'translation', or 'category'
+    let selectedTranslationLang = 'sv';
 
     async function fetchStyleOverlays() {
         try {
@@ -241,18 +242,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const allCategories = Object.keys(categoryNames);
 
+        // Determine which editor to show
+        let editorContent;
+        if (currentEditorView === 'base') {
+            editorContent = renderBasePromptEditor();
+        } else if (currentEditorView === 'translation') {
+            editorContent = renderTranslationPromptEditor();
+        } else {
+            editorContent = renderPromptEditor();
+        }
+
         container.innerHTML = `
             <div class="prompts-layout">
                 <div class="panel glass prompts-sidebar">
-                    <h3>GRUNDPROMPT</h3>
+                    <h3>STEG 1: SAMMANFATTNING</h3>
                     <ul class="category-list">
-                        <li class="${showBasePromptEditor ? 'active' : ''} ${basePrompts['base'] ? 'has-prompt' : ''}" data-base="true">
-                            <i class="fas fa-cog"></i> Grundinställningar
+                        <li class="${currentEditorView === 'base' ? 'active' : ''} ${basePrompts['base'] ? 'has-prompt' : ''}" data-view="base">
+                            <i class="fas fa-file-alt"></i> Grundprompt
                             ${basePrompts['base'] ? '<span class="check-icon">✓</span>' : ''}
                         </li>
                     </ul>
 
-                    <h3 style="margin-top: 20px;">KATEGORIER</h3>
+                    <h3 style="margin-top: 20px;">STEG 2: ÖVERSÄTTNING</h3>
+                    <p style="font-size: 0.75em; color: var(--text-secondary); margin: 5px 0 10px 0;">Layer 1: Språkprompt</p>
+                    <ul class="category-list">
+                        ${Object.entries(languageNames).map(([code, name]) => `
+                            <li class="${currentEditorView === 'translation' && selectedTranslationLang === code ? 'active' : ''} ${basePrompts['translation_' + code] ? 'has-prompt' : ''}" data-view="translation" data-translation-lang="${code}">
+                                <i class="fas fa-language"></i> ${name}
+                                ${basePrompts['translation_' + code] ? '<span class="check-icon">✓</span>' : ''}
+                            </li>
+                        `).join('')}
+                    </ul>
+
+                    <p style="font-size: 0.75em; color: var(--text-secondary); margin: 15px 0 10px 0;">Layer 2: Kategori-overlay</p>
                     <div class="language-selector">
                         ${Object.entries(languageNames).map(([code, name]) => `
                             <button class="lang-btn ${code === selectedLanguage ? 'active' : ''}" data-lang="${code}">
@@ -264,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${allCategories.map(cat => {
                             const overlay = getOverlay(cat, selectedLanguage);
                             return `
-                                <li class="${!showBasePromptEditor && cat === selectedCategory ? 'active' : ''} ${overlay ? 'has-prompt' : ''}" data-category="${cat}">
+                                <li class="${currentEditorView === 'category' && cat === selectedCategory ? 'active' : ''} ${overlay ? 'has-prompt' : ''}" data-view="category" data-category="${cat}">
                                     ${categoryNames[cat]}
                                     ${overlay ? '<span class="check-icon">✓</span>' : ''}
                                 </li>
@@ -273,7 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </ul>
                 </div>
                 <div class="panel glass prompts-editor">
-                    ${showBasePromptEditor ? renderBasePromptEditor() : renderPromptEditor()}
+                    ${editorContent}
                 </div>
             </div>
         `;
@@ -285,17 +307,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentBasePrompt = basePrompts['base'] || '';
 
         return `
-            <h2><i class="fas fa-cog"></i> Grundprompt</h2>
-            <p class="editor-subtitle">Denna prompt används som bas för ALL AI-bearbetning av nyheter</p>
+            <h2><i class="fas fa-cog"></i> Grundprompt (Sammanfattning)</h2>
+            <p class="editor-subtitle">Steg 1: Skapar title, summary, category, tags på engelska från rådata</p>
 
             <form id="basePromptForm">
                 <div class="input-group">
-                    <label>Grundprompt (gäller alla kategorier)</label>
-                    <textarea id="basePromptInput" rows="20"
-                        placeholder="Skriv grundinstruktioner för AI:n...">${escapeHtml(currentBasePrompt)}</textarea>
+                    <label>Grundprompt för sammanfattning</label>
+                    <textarea id="basePromptInput" rows="18"
+                        placeholder="Skriv grundinstruktioner för hur AI:n ska sammanfatta och kategorisera nyheter...">${escapeHtml(currentBasePrompt)}</textarea>
                     <p class="input-help">
-                        <strong>Viktigt:</strong> Denna prompt körs för ALLA artiklar. Kategori-specifika tillägg läggs till efter denna.
-                        <br>Här definierar du grundläggande regler för översättning, sammanfattning, ton och struktur.
+                        <strong>Steg 1 i pipeline:</strong> Tar RSS-data → Skapar engelska title, summary, category, isBreaking.
+                        <br>Denna prompt körs för ALLA inkommande artiklar innan de sparas i databasen.
                     </p>
                 </div>
 
@@ -307,10 +329,54 @@ document.addEventListener('DOMContentLoaded', () => {
             </form>
 
             <div class="base-prompt-info" style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                <h4 style="margin-bottom: 10px;"><i class="fas fa-info-circle"></i> Hur prompterna fungerar</h4>
+                <h4 style="margin-bottom: 10px;"><i class="fas fa-info-circle"></i> AI Pipeline</h4>
                 <p style="font-size: 0.9em; color: var(--text-secondary); line-height: 1.6;">
-                    1. <strong>Grundprompt</strong> (denna) - Körs först för alla artiklar<br>
-                    2. <strong>Kategori-tillägg</strong> - Läggs till baserat på artikelns kategori och språk
+                    <strong>Steg 1 - Sammanfattning:</strong> Grundprompt (denna) → Engelska data i DB<br>
+                    <strong>Steg 2 - Översättning:</strong> Språkprompt (Layer 1) + Kategori-overlay (Layer 2) → Lokaliserad output
+                </p>
+            </div>
+        `;
+    }
+
+    function renderTranslationPromptEditor() {
+        const currentTranslationPrompt = basePrompts[`translation_${selectedTranslationLang}`] || '';
+        const langName = languageNames[selectedTranslationLang] || selectedTranslationLang;
+
+        return `
+            <h2><i class="fas fa-language"></i> Översättningsprompt: ${langName}</h2>
+            <p class="editor-subtitle">Layer 1: Generella översättningsregler för ${langName.toLowerCase()}</p>
+
+            <div class="language-selector" style="margin-bottom: 20px;">
+                ${Object.entries(languageNames).map(([code, name]) => `
+                    <button class="lang-btn ${code === selectedTranslationLang ? 'active' : ''}" data-translation-lang="${code}">
+                        ${name}
+                    </button>
+                `).join('')}
+            </div>
+
+            <form id="translationPromptForm">
+                <div class="input-group">
+                    <label>Översättningsprompt för ${langName}</label>
+                    <textarea id="translationPromptInput" rows="12"
+                        placeholder="T.ex: Översätt till flytande, naturlig ${langName.toLowerCase()}. Använd korrekt grammatik...">${escapeHtml(currentTranslationPrompt)}</textarea>
+                    <p class="input-help">
+                        <strong>Layer 1:</strong> Dessa instruktioner gäller ALL översättning till ${langName.toLowerCase()}, oavsett kategori.
+                        <br>Definiera språkstil, grammatikregler, och generella översättningsprinciper.
+                    </p>
+                </div>
+
+                <div class="prompt-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Spara översättningsprompt
+                    </button>
+                </div>
+            </form>
+
+            <div class="base-prompt-info" style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <h4 style="margin-bottom: 10px;"><i class="fas fa-layer-group"></i> Översättningslager</h4>
+                <p style="font-size: 0.9em; color: var(--text-secondary); line-height: 1.6;">
+                    <strong>Layer 1 (denna):</strong> Språk-specifik prompt (gäller alla kategorier)<br>
+                    <strong>Layer 2:</strong> Kategori-overlay (ton och stil per ämne)
                 </p>
             </div>
         `;
@@ -368,31 +434,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function attachPromptsEventListeners() {
-        // Language selector
+        // Language selector for category overlays (Layer 2)
         document.querySelectorAll('.lang-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 selectedLanguage = btn.dataset.lang;
-                showBasePromptEditor = false;
                 renderPromptsView();
             });
         });
 
-        // Category list - handle both base prompt and category clicks
+        // Main navigation - handle all view switches
         document.querySelectorAll('.category-list li').forEach(li => {
             li.addEventListener('click', () => {
-                if (li.dataset.base === 'true') {
-                    // Clicked on "Grundinställningar"
-                    showBasePromptEditor = true;
-                } else if (li.dataset.category) {
-                    // Clicked on a category
-                    showBasePromptEditor = false;
-                    selectedCategory = li.dataset.category;
+                const view = li.dataset.view;
+
+                if (view === 'base') {
+                    currentEditorView = 'base';
+                } else if (view === 'translation') {
+                    currentEditorView = 'translation';
+                    if (li.dataset.translationLang) {
+                        selectedTranslationLang = li.dataset.translationLang;
+                    }
+                } else if (view === 'category') {
+                    currentEditorView = 'category';
+                    if (li.dataset.category) {
+                        selectedCategory = li.dataset.category;
+                    }
                 }
                 renderPromptsView();
             });
         });
 
-        // Style overlay form submit
+        // Style overlay form submit (category overlays)
         const form = document.getElementById('promptForm');
         if (form) {
             form.addEventListener('submit', async (e) => {
@@ -409,6 +481,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 await saveBasePrompt();
             });
         }
+
+        // Translation prompt form submit
+        const translationForm = document.getElementById('translationPromptForm');
+        if (translationForm) {
+            translationForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await saveTranslationPrompt();
+            });
+        }
+
+        // Language switcher inside translation editor
+        document.querySelectorAll('[data-translation-lang]').forEach(btn => {
+            if (btn.classList.contains('lang-btn')) {
+                btn.addEventListener('click', () => {
+                    selectedTranslationLang = btn.dataset.translationLang;
+                    renderPromptsView();
+                });
+            }
+        });
 
         // Delete button
         const deleteBtn = document.getElementById('deletePromptBtn');
@@ -448,6 +539,41 @@ document.addEventListener('DOMContentLoaded', () => {
             basePrompts['base'] = prompt;
 
             alert('Grundprompt sparad!');
+            renderPromptsView();
+        } catch (err) {
+            alert('Fel vid sparning: ' + err.message);
+        }
+    }
+
+    async function saveTranslationPrompt() {
+        const prompt = document.getElementById('translationPromptInput').value.trim();
+
+        if (!prompt) {
+            alert('Översättningsprompt kan inte vara tom');
+            return;
+        }
+
+        try {
+            const btn = document.querySelector('#translationPromptForm button[type="submit"]');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sparar...';
+            }
+
+            const category = `translation_${selectedTranslationLang}`;
+
+            await apiFetch('/api/admin/prompts', {
+                method: 'POST',
+                body: JSON.stringify({
+                    category,
+                    prompt
+                })
+            });
+
+            // Update local cache
+            basePrompts[category] = prompt;
+
+            alert(`Översättningsprompt för ${languageNames[selectedTranslationLang]} sparad!`);
             renderPromptsView();
         } catch (err) {
             alert('Fel vid sparning: ' + err.message);

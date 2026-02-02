@@ -63,55 +63,109 @@ ALWAYS respond in this JSON format (nothing else):
 }`;
 
 /**
+ * Get base prompt from DB (for summarization)
+ * Falls back to FALLBACK_SUMMARIZE_INSTRUCTIONS if not found
+ */
+async function getBasePrompt() {
+  try {
+    const [basePrompt] = await db
+      .select()
+      .from(aiPrompts)
+      .where(eq(aiPrompts.category, 'base'))
+      .limit(1);
+
+    if (basePrompt?.prompt && basePrompt.isActive) {
+      return basePrompt.prompt;
+    }
+  } catch (err) {
+    console.error("Error fetching base prompt from DB:", err);
+  }
+  return FALLBACK_SUMMARIZE_INSTRUCTIONS;
+}
+
+/**
+ * Get translation prompt for a specific language (Layer 1)
+ * Stored as aiPrompts.category = 'translation_sv', 'translation_en', etc.
+ */
+async function getTranslationPrompt(targetLanguage) {
+  const category = `translation_${targetLanguage}`;
+
+  try {
+    const [translationPrompt] = await db
+      .select()
+      .from(aiPrompts)
+      .where(eq(aiPrompts.category, category))
+      .limit(1);
+
+    if (translationPrompt?.prompt && translationPrompt.isActive) {
+      return translationPrompt.prompt;
+    }
+  } catch (err) {
+    console.error(`Error fetching translation prompt for ${targetLanguage}:`, err);
+  }
+
+  // Fallback translation prompts per language
+  const fallbackTranslations = {
+    sv: `Översätt till flytande, naturlig svenska. Använd korrekt svensk grammatik och idiomatiska uttryck. Behåll en professionell journalistisk ton.`,
+    en: `Translate to fluent, natural English. Use correct grammar and idiomatic expressions. Maintain a professional journalistic tone.`,
+    de: `Übersetzen Sie in flüssiges, natürliches Deutsch. Verwenden Sie korrekte Grammatik und idiomatische Ausdrücke. Behalten Sie einen professionellen journalistischen Ton bei.`,
+    no: `Oversett til flytende, naturlig norsk. Bruk korrekt grammatikk og idiomatiske uttrykk. Behold en profesjonell journalistisk tone.`,
+    da: `Oversæt til flydende, naturligt dansk. Brug korrekt grammatik og idiomatiske udtryk. Bevar en professionel journalistisk tone.`,
+    fi: `Käännä sujuvalle, luonnolliselle suomelle. Käytä oikeaa kielioppia ja idiomaattisia ilmauksia. Säilytä ammattimainen journalistinen sävy.`,
+  };
+
+  return fallbackTranslations[targetLanguage] || fallbackTranslations.en;
+}
+
+/**
  * Get category-specific prompt additions from DB
  */
 async function getCategoryAdditions(category) {
   const normalizedCategory = (category || "default").toLowerCase();
 
   try {
-    const prompts = await db
+    const [categoryPromptObj] = await db
       .select()
       .from(aiPrompts)
-      .where(inArray(aiPrompts.category, ["base", normalizedCategory]));
+      .where(eq(aiPrompts.category, normalizedCategory))
+      .limit(1);
 
-    const categoryPromptObj = prompts.find(p => p.category === normalizedCategory);
-
-    if (categoryPromptObj && categoryPromptObj.isActive) {
+    if (categoryPromptObj?.prompt && categoryPromptObj.isActive) {
       return categoryPromptObj.prompt;
     }
-
-    // Fallback category-specific additions
-    const fallbackAdditions = {
-      world: `For world news: Name the countries, cities, and key people involved.`,
-      politics: `For political news: Name politicians, parties, and specific decisions.`,
-      sports: `For sports news: Include exact scores and names of teams/players.`,
-      tech: `For tech news: Explain the technology simply, name products and companies.`,
-      business: `For business news: Include numbers (amounts, percentages) and company names.`,
-      science: `For science news: Explain the discovery simply, name institutions.`,
-      local: `For local/regional news: Name the specific location, local authorities, and community impact.`,
-      culture: `For culture news: Name artists, works, and events.`,
-      default: `Include specific names, places, and dates. Be concrete.`,
-    };
-
-    if (normalizedCategory.includes("sport")) return fallbackAdditions.sports;
-    if (normalizedCategory.includes("tech")) return fallbackAdditions.tech;
-    if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) return fallbackAdditions.business;
-    if (normalizedCategory.includes("science")) return fallbackAdditions.science;
-    if (normalizedCategory.includes("local") || normalizedCategory.includes("swedish") || normalizedCategory.includes("lokalt")) return fallbackAdditions.local;
-    if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) return fallbackAdditions.culture;
-    if (normalizedCategory.includes("politic")) return fallbackAdditions.politics;
-    if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) return fallbackAdditions.world;
-
-    return fallbackAdditions.default;
   } catch (err) {
-    console.error("Error fetching prompt from DB:", err);
-    return "Include specific names, places, and dates. Be concrete.";
+    console.error("Error fetching category prompt from DB:", err);
   }
+
+  // Fallback category-specific additions
+  const fallbackAdditions = {
+    world: `For world news: Name the countries, cities, and key people involved.`,
+    politics: `For political news: Name politicians, parties, and specific decisions.`,
+    sports: `For sports news: Include exact scores and names of teams/players.`,
+    tech: `For tech news: Explain the technology simply, name products and companies.`,
+    business: `For business news: Include numbers (amounts, percentages) and company names.`,
+    science: `For science news: Explain the discovery simply, name institutions.`,
+    local: `For local/regional news: Name the specific location, local authorities, and community impact.`,
+    culture: `For culture news: Name artists, works, and events.`,
+    default: `Include specific names, places, and dates. Be concrete.`,
+  };
+
+  if (normalizedCategory.includes("sport")) return fallbackAdditions.sports;
+  if (normalizedCategory.includes("tech")) return fallbackAdditions.tech;
+  if (normalizedCategory.includes("business") || normalizedCategory.includes("econom")) return fallbackAdditions.business;
+  if (normalizedCategory.includes("science")) return fallbackAdditions.science;
+  if (normalizedCategory.includes("local") || normalizedCategory.includes("swedish") || normalizedCategory.includes("lokalt")) return fallbackAdditions.local;
+  if (normalizedCategory.includes("culture") || normalizedCategory.includes("entertainment")) return fallbackAdditions.culture;
+  if (normalizedCategory.includes("politic")) return fallbackAdditions.politics;
+  if (normalizedCategory.includes("world") || normalizedCategory.includes("top")) return fallbackAdditions.world;
+
+  return fallbackAdditions.default;
 }
 
 /**
  * STEP 1: Summarize and categorize article (keeps original language)
  * Called by backgroundWorker when new articles arrive
+ * Uses base prompt from DB + category-specific additions
  */
 async function summarizeAndCategorize(title, content, sourceCategory) {
   if (!apiConfig.deepseek.apiKey || apiConfig.deepseek.apiKey === "no-key") {
@@ -120,8 +174,10 @@ async function summarizeAndCategorize(title, content, sourceCategory) {
   }
 
   try {
+    // Get base prompt from DB (or fallback)
+    const basePrompt = await getBasePrompt();
     const categoryAddition = await getCategoryAdditions(sourceCategory);
-    const systemPrompt = `${FALLBACK_SUMMARIZE_INSTRUCTIONS}\n\n${categoryAddition}`;
+    const systemPrompt = `${basePrompt}\n\n${categoryAddition}`;
 
     const response = await openai.chat.completions.create({
       model: apiConfig.deepseek.model,
@@ -160,7 +216,10 @@ async function summarizeAndCategorize(title, content, sourceCategory) {
 /**
  * STEP 2: Translate article to target language
  * Called when iOS app requests articles with a specific language
- * Now supports category-specific translation instructions from database
+ *
+ * Uses TWO layers of customization:
+ * - Layer 1: Language-specific translation prompt (aiPrompts.translation_sv, etc.)
+ * - Layer 2: Category+language overlay (aiStyleOverlays) for tone/style
  */
 async function translateArticle(title, summary, targetLanguage = 'sv', category = null) {
   if (!apiConfig.deepseek.apiKey || apiConfig.deepseek.apiKey === "no-key") {
@@ -182,13 +241,15 @@ async function translateArticle(title, summary, targetLanguage = 'sv', category 
 
   const langName = languageNames[targetLanguage] || 'Swedish';
 
-  // Fetch category-specific translation instructions from database
-  let categoryInstructions = '';
+  // Layer 1: Get language-specific translation prompt from DB
+  const translationPrompt = await getTranslationPrompt(targetLanguage);
+
+  // Layer 2: Fetch category-specific style overlay from database
+  let categoryOverlay = '';
   if (category) {
     try {
-      const { db } = require('./db');
       const { aiStyleOverlays } = require('./db/schema');
-      const { eq, and } = require('drizzle-orm');
+      const { and } = require('drizzle-orm');
 
       const [overlay] = await db.select()
         .from(aiStyleOverlays)
@@ -200,7 +261,7 @@ async function translateArticle(title, summary, targetLanguage = 'sv', category 
         .limit(1);
 
       if (overlay?.stylePrompt) {
-        categoryInstructions = `\n\nCATEGORY-SPECIFIC INSTRUCTIONS FOR ${category.toUpperCase()}:\n${overlay.stylePrompt}`;
+        categoryOverlay = `\n\nCATEGORY-SPECIFIC STYLE (${category.toUpperCase()}):\n${overlay.stylePrompt}`;
       }
     } catch (err) {
       console.warn('Could not fetch style overlay:', err.message);
@@ -210,15 +271,16 @@ async function translateArticle(title, summary, targetLanguage = 'sv', category 
   try {
     const systemPrompt = `You are a professional news translator. Translate the following news headline and summary to ${langName}.
 
-CRITICAL RULES:
-1. Translate to natural, fluent ${langName}
-2. Keep all proper nouns, names, and numbers
-3. Maintain the journalistic tone
-4. If the summary describes the article instead of reporting news (e.g., "The article discusses...", "This piece explores..."), REWRITE it as direct news reporting
-5. The summary should tell WHAT HAPPENED, not describe what the article is about
+LANGUAGE-SPECIFIC INSTRUCTIONS:
+${translationPrompt}
 
-BAD (meta-description): "Artikeln ger råd om hur man undviker avgifter..."
-GOOD (direct news): "Resenärer kan undvika extra avgifter genom att..."${categoryInstructions}
+GENERAL RULES:
+1. Keep all proper nouns, names, and numbers
+2. If the summary describes the article instead of reporting news (e.g., "The article discusses..."), REWRITE it as direct news reporting
+3. The summary should tell WHAT HAPPENED, not describe what the article is about
+
+BAD: "Artikeln ger råd om hur man undviker avgifter..."
+GOOD: "Resenärer kan undvika extra avgifter genom att..."${categoryOverlay}
 
 ALWAYS respond in this JSON format (nothing else):
 {
