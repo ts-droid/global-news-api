@@ -327,13 +327,15 @@ ALWAYS respond in this JSON format with ${langName} text (nothing else):
   "summary": "TRANSLATED summary in ${langName}"
 }`;
 
+    console.log(`🌐 Translating to ${targetLanguage}: "${title.substring(0, 50)}..."`);
+
     const response = await openai.chat.completions.create({
       model: apiConfig.deepseek.model,
       messages: [
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `Title: ${title}\n\nSummary: ${summary}`,
+          content: `Translate this to ${langName}:\n\nTitle: ${title}\n\nSummary: ${summary}`,
         },
       ],
       max_tokens: 600,
@@ -341,7 +343,11 @@ ALWAYS respond in this JSON format with ${langName} text (nothing else):
       response_format: { type: "json_object" },
     });
 
-    const parsed = JSON.parse(response.choices[0].message.content);
+    const rawResponse = response.choices[0].message.content;
+    console.log(`📝 DeepSeek raw response: ${rawResponse.substring(0, 200)}...`);
+
+    const parsed = JSON.parse(rawResponse);
+    console.log(`✅ Translated title: "${parsed.title?.substring(0, 50)}..."`);
 
     return {
       title: parsed.title || title,
