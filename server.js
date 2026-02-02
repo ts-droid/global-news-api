@@ -343,13 +343,16 @@ app.get('/api/news', async (req, res) => {
  */
 app.get('/api/events', async (req, res) => {
   try {
-    const { limit = 15, offset = 0, category, lang = 'sv', nocache } = req.query;
+    const { limit = 15, offset = 0, category, lang = 'sv', nocache, countries } = req.query;
     const { translateArticle } = require('./aiService');
     const safeLimit = Math.min(parseInt(limit) || 15, 30); // Reduced for faster response
     const safeOffset = parseInt(offset) || 0;
 
+    // Parse countries filter (comma-separated ISO codes: "SE,US,GB,CA")
+    const countryFilter = countries ? countries.split(',').map(c => c.trim().toUpperCase()) : null;
+
     // Check cache first (skip if nocache=1)
-    const cacheKey = `events_${category || 'all'}_${lang}_${safeOffset}_${safeLimit}`;
+    const cacheKey = `events_${category || 'all'}_${lang}_${safeOffset}_${safeLimit}_${countries || 'all'}`;
     if (!nocache) {
       let cachedEvents = cache.get(cacheKey);
       if (cachedEvents) {
@@ -622,9 +625,24 @@ app.get('/api/events', async (req, res) => {
 
     // Filter to only show translated events when requesting non-English
     // This gives a cleaner UX - users only see properly translated content
-    const filteredEvents = lang !== 'en'
+    let filteredEvents = lang !== 'en'
       ? translatedEvents.filter(e => e.isTranslated)
       : translatedEvents;
+
+    // Apply country filter if specified
+    if (countryFilter && countryFilter.length > 0) {
+      console.log(`🌍 Filtering by countries: ${countryFilter.join(', ')}`);
+      filteredEvents = filteredEvents.filter(e => {
+        // If event has no country codes, don't show it (unless it's a global/breaking news)
+        if (!e.countryCodes || e.countryCodes.length === 0) {
+          // Allow events without country codes if they're breaking news
+          return e.isBreaking;
+        }
+        // Check if any of the event's countries match user's filter
+        return e.countryCodes.some(cc => countryFilter.includes(cc));
+      });
+      console.log(`🌍 After country filter: ${filteredEvents.length} events`);
+    }
 
     const result = {
       events: filteredEvents,

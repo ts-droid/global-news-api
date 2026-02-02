@@ -355,7 +355,11 @@ ALWAYS respond in this JSON format with ${langName} text (nothing else):
     };
   } catch (error) {
     console.error("❌ AI Translation Error:", error.message);
-    return { title, summary };
+    // Check for billing/balance issues
+    if (error.message && (error.message.includes('402') || error.message.includes('Insufficient Balance'))) {
+      console.error("🚨 CRITICAL: DeepSeek API has insufficient balance! Please top up your account.");
+    }
+    return { title, summary, error: error.message };
   }
 }
 
