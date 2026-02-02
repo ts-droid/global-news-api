@@ -298,23 +298,33 @@ async function translateArticle(title, summary, targetLanguage = 'sv', category 
   }
 
   try {
-    const systemPrompt = `You are a professional news translator. Translate the following news headline and summary to ${langName}.
+    const systemPrompt = `You are a professional news translator. Your task is to TRANSLATE English text to ${langName}.
+
+CRITICAL: You MUST translate ALL text from English to ${langName}. The output MUST be in ${langName}, NOT in English!
 
 LANGUAGE-SPECIFIC INSTRUCTIONS:
 ${translationPrompt}
 
-GENERAL RULES:
-1. Keep all proper nouns, names, and numbers
-2. If the summary describes the article instead of reporting news (e.g., "The article discusses..."), REWRITE it as direct news reporting
-3. The summary should tell WHAT HAPPENED, not describe what the article is about
+TRANSLATION RULES:
+1. EVERY word must be translated to ${langName} (except proper nouns like names of people, places, organizations)
+2. Keep all proper nouns, names, and numbers unchanged
+3. If the summary describes the article instead of reporting news (e.g., "The article discusses..."), REWRITE it as direct news reporting
+4. The summary should tell WHAT HAPPENED, not describe what the article is about
 
-BAD: "Artikeln ger råd om hur man undviker avgifter..."
-GOOD: "Resenärer kan undvika extra avgifter genom att..."${categoryOverlay}
+EXAMPLES FOR SWEDISH:
+English: "Russia attacks Ukraine power grid"
+Swedish: "Ryssland attackerar Ukrainas elnät"
 
-ALWAYS respond in this JSON format (nothing else):
+English: "Russian forces launched missiles"
+Swedish: "Ryska styrkor avfyrade missiler"
+
+BAD OUTPUT (English - WRONG!): "Russia attacks Ukraine power grid"
+GOOD OUTPUT (Swedish - CORRECT!): "Ryssland attackerar Ukrainas elnät"${categoryOverlay}
+
+ALWAYS respond in this JSON format with ${langName} text (nothing else):
 {
-  "title": "Translated headline in ${langName}",
-  "summary": "Translated summary as direct news reporting in ${langName}"
+  "title": "TRANSLATED headline in ${langName}",
+  "summary": "TRANSLATED summary in ${langName}"
 }`;
 
     const response = await openai.chat.completions.create({
