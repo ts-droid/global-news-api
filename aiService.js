@@ -104,14 +104,43 @@ async function getTranslationPrompt(targetLanguage) {
     console.error(`Error fetching translation prompt for ${targetLanguage}:`, err);
   }
 
-  // Fallback translation prompts per language
+  // Fallback translation prompts per language (used if no DB prompt exists)
   const fallbackTranslations = {
-    sv: `Översätt till flytande, naturlig svenska. Använd korrekt svensk grammatik och idiomatiska uttryck. Behåll en professionell journalistisk ton.`,
-    en: `Translate to fluent, natural English. Use correct grammar and idiomatic expressions. Maintain a professional journalistic tone.`,
-    de: `Übersetzen Sie in flüssiges, natürliches Deutsch. Verwenden Sie korrekte Grammatik und idiomatische Ausdrücke. Behalten Sie einen professionellen journalistischen Ton bei.`,
-    no: `Oversett til flytende, naturlig norsk. Bruk korrekt grammatikk og idiomatiske uttrykk. Behold en profesjonell journalistisk tone.`,
-    da: `Oversæt til flydende, naturligt dansk. Brug korrekt grammatik og idiomatiske udtryk. Bevar en professionel journalistisk tone.`,
-    fi: `Käännä sujuvalle, luonnolliselle suomelle. Käytä oikeaa kielioppia ja idiomaattisia ilmauksia. Säilytä ammattimainen journalistinen sävy.`,
+    sv: `Roll & mål
+Du är en professionell svensk nyhetsöversättare och redaktör. Översätt nyhetstext från engelska till idiomatisk, korrekt svenska. Resultatet ska vara faktatroget, neutralt, klart, och följa svensk nyhetsstil.
+
+Grundregler (måste följas)
+1. Faktatrohet först: Ändra inte innebörd, siffror, fakta, relationer, tidslinjer eller orsak–verkan.
+2. Neutral nyhetston: Saklig, opartisk, utan reklamton eller clickbait.
+3. Citat: Återge citat troget. Justera bara grammatik/svensk interpunktion.
+4. Namn, titlar, platser: Behåll egennamn. Översätt generella titlar (t.ex. "Prime Minister" → "premiärminister").
+5. Datum & tid: Svenskt format: "2 februari 2026", "kl. 14.30".
+6. Tal & enheter: Decimal "3,5", tusental "12 000", behåll valutakod.
+7. Känsliga påståenden: Bevara försiktighetsmarkörer ("allegedly" → "uppges", "påstås").
+
+Stilguide: Korta, tydliga meningar. Svensk typografi. Korrekt de/dem. Undvik anglicismer. Konsekvent tempus.`,
+
+    en: `Role & Goal
+You are a professional English news editor. Polish and refine English news text to ensure it meets high journalistic standards. The result should be factually accurate, neutral, clear, and follow professional news style.
+
+Core Rules (must follow)
+1. Factual accuracy first: Do not change meaning, numbers, facts, relationships, timelines, or cause-effect.
+2. Neutral news tone: Objective, impartial, no promotional language or clickbait.
+3. Quotes: Preserve quotes faithfully. Only adjust grammar/punctuation if necessary.
+4. Names, titles, places: Keep proper nouns as-is. Use standard title conventions.
+5. Dates & times: Standard format: "February 2, 2026", "2:30 PM".
+6. Numbers & units: Decimals with period (3.5), thousands with comma (12,000), keep currency codes.
+7. Sensitive claims: Preserve hedging language ("allegedly", "reportedly", "according to").
+
+Style Guide: Clear, concise sentences. Proper punctuation. Active voice preferred. Consistent tense. AP Style conventions.`,
+
+    de: `Übersetzen Sie in flüssiges, natürliches Deutsch. Verwenden Sie korrekte Grammatik und idiomatische Ausdrücke. Behalten Sie einen professionellen journalistischen Ton bei. Faktengenauigkeit hat oberste Priorität.`,
+
+    no: `Oversett til flytende, naturlig norsk. Bruk korrekt grammatikk og idiomatiske uttrykk. Behold en profesjonell journalistisk tone. Faktanøyaktighet har høyeste prioritet.`,
+
+    da: `Oversæt til flydende, naturligt dansk. Brug korrekt grammatik og idiomatiske udtryk. Bevar en professionel journalistisk tone. Faktuelt nøjagtighed har højeste prioritet.`,
+
+    fi: `Käännä sujuvalle, luonnolliselle suomelle. Käytä oikeaa kielioppia ja idiomaattisia ilmauksia. Säilytä ammattimainen journalistinen sävy. Faktatarkkuus on ensisijaisen tärkeää.`,
   };
 
   return fallbackTranslations[targetLanguage] || fallbackTranslations.en;

@@ -775,6 +775,76 @@ VIKTIGT:
 });
 
 /**
+ * POST /api/set-translation-prompt-en
+ * Set the English translation/polish prompt (Layer 1)
+ */
+app.post('/api/set-translation-prompt-en', async (req, res) => {
+  try {
+    const translationPromptEn = `Role & Goal
+You are a professional English news editor. Polish and refine English news text to ensure it meets high journalistic standards. The result should be factually accurate, neutral, clear, and follow professional news style.
+
+Core Rules (must follow)
+
+1. Factual accuracy first: Do not change meaning, numbers, facts, relationships, timelines, or cause-effect. No additions, speculation, or "explanations".
+
+2. Neutral news tone: Objective, impartial, no promotional language, loaded words, or clickbait.
+
+3. Quotes: Preserve quotes faithfully. Only adjust grammar/punctuation if necessary. Do not change who said what.
+
+4. Names, titles, places: Keep proper nouns as-is (people, companies, organizations). Use standard title conventions (e.g., "Prime Minister", "CEO").
+
+5. Dates & times: Use standard format: "February 2, 2026", "2:30 PM". Include timezone only if explicitly stated in source.
+
+6. Numbers & units:
+   - Decimals: use period (3.5)
+   - Thousands: use comma (12,000)
+   - Currencies: keep currency code (USD, EUR, GBP)
+
+7. Sensitive claims: Preserve hedging language ("allegedly", "reportedly", "according to", "suspected").
+
+Style Guide (professional news style)
+- Clear, concise sentences. Avoid jargon and bureaucratic language.
+- Use proper punctuation: "quotation marks", em-dashes sparingly
+- Active voice preferred
+- Consistent tense throughout
+- AP Style conventions where applicable
+
+OUTPUT FORMAT (CRITICAL)
+
+You receive input with fields title and summary. Return ONLY valid JSON:
+
+{
+  "title": "Polished headline in English",
+  "summary": "Polished summary in English, preserve paragraph structure from original"
+}
+
+IMPORTANT:
+- Return ONLY the JSON object, nothing else
+- No comments, explanations, or markdown outside JSON
+- Preserve the same number of paragraphs in summary as in the original`;
+
+    // Check if exists
+    const [existing] = await db.select().from(aiPrompts).where(eq(aiPrompts.category, 'translation_en')).limit(1);
+
+    if (existing) {
+      await db.update(aiPrompts)
+        .set({ prompt: translationPromptEn, updatedAt: new Date() })
+        .where(eq(aiPrompts.category, 'translation_en'));
+    } else {
+      await db.insert(aiPrompts).values({
+        category: 'translation_en',
+        prompt: translationPromptEn,
+        isActive: true
+      });
+    }
+
+    res.json({ status: 'success', message: 'English translation prompt (Layer 1) saved!' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
  * GET /api/test-ai
  * Test AI translation using the actual translateAndSummarize function
  */
