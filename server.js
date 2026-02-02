@@ -149,6 +149,34 @@ app.get('/api/debug/translations', async (req, res) => {
 });
 
 /**
+ * DELETE /api/debug/translations
+ * Clear all cached translations to force re-translation
+ */
+app.delete('/api/debug/translations', async (req, res) => {
+  try {
+    const { lang } = req.query;
+
+    if (lang) {
+      // Delete translations for specific language
+      await db.delete(eventTranslations).where(eq(eventTranslations.language, lang));
+      console.log(`🗑️ Cleared all ${lang} translations from cache`);
+    } else {
+      // Delete all translations
+      await db.delete(eventTranslations);
+      console.log('🗑️ Cleared ALL translations from cache');
+    }
+
+    // Also clear memory cache
+    cache.flushAll();
+    console.log('🗑️ Cleared memory cache');
+
+    res.json({ status: 'success', message: `Translations cleared${lang ? ` for ${lang}` : ''}` });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
  * Helper function to paginate results
  */
 const paginate = (articles, limit = 20, offset = 0) => {
