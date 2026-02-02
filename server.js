@@ -371,7 +371,7 @@ app.get('/api/news', async (req, res) => {
  */
 app.get('/api/events', async (req, res) => {
   try {
-    const { limit = 15, offset = 0, category, lang = 'sv', nocache, countries } = req.query;
+    const { limit = 15, offset = 0, category, lang = 'sv', nocache, countries, homeCountry } = req.query;
     const { translateArticle } = require('./aiService');
     const safeLimit = Math.min(parseInt(limit) || 15, 30); // Reduced for faster response
     const safeOffset = parseInt(offset) || 0;
@@ -379,8 +379,11 @@ app.get('/api/events', async (req, res) => {
     // Parse countries filter (comma-separated ISO codes: "SE,US,GB,CA")
     const countryFilter = countries ? countries.split(',').map(c => c.trim().toUpperCase()) : null;
 
+    // Parse home country for boosting local news (single ISO code: "SE")
+    const homeCountryCode = homeCountry ? homeCountry.trim().toUpperCase() : null;
+
     // Check cache first (skip if nocache=1)
-    const cacheKey = `events_${category || 'all'}_${lang}_${safeOffset}_${safeLimit}_${countries || 'all'}`;
+    const cacheKey = `events_${category || 'all'}_${lang}_${safeOffset}_${safeLimit}_${countries || 'all'}_${homeCountry || 'none'}`;
     if (!nocache) {
       let cachedEvents = cache.get(cacheKey);
       if (cachedEvents) {
@@ -670,6 +673,26 @@ app.get('/api/events', async (req, res) => {
         return e.countryCodes.some(cc => countryFilter.includes(cc));
       });
       console.log(`🌍 After country filter: ${filteredEvents.length} events`);
+    }
+
+    // Boost local news if homeCountry is specified
+    // Local news from user's country will appear higher in the feed
+    if (homeCountryCode) {
+      console.log(`🏠 Boosting local news for: ${homeCountryCode}`);
+      filteredEvents = filteredEvents.map(e => ({
+        ...e,
+        isLocalNews: e.countryCodes?.includes(homeCountryCode) || false
+      }));
+
+      // Sort: local news first (within same time window), then by date
+      filteredEvents.sort((a, b) => {
+        // Both local or both not local - sort by date
+        if (a.isLocalNews === b.isLocalNews) {
+          return new Date(b.pubDate) - new Date(a.pubDate);
+        }
+        // Local news first
+        return a.isLocalNews ? -1 : 1;
+      });
     }
 
     const result = {
