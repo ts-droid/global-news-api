@@ -85,6 +85,70 @@ app.use((req, res, next) => {
 });
 
 /**
+ * GET /api/debug/translate
+ * Test translation endpoint - for debugging only
+ */
+app.get('/api/debug/translate', async (req, res) => {
+  try {
+    const { translateArticle } = require('./aiService');
+    const { title = 'Russia attacks Ukraine power grid', summary = 'Russian forces launched missiles at Ukrainian power infrastructure killing 12 people.', lang = 'sv' } = req.query;
+
+    console.log('🧪 DEBUG: Testing translation...');
+    console.log('Input title:', title);
+    console.log('Input summary:', summary);
+    console.log('Target language:', lang);
+
+    const startTime = Date.now();
+    const result = await translateArticle(title, summary, lang, 'world');
+    const elapsed = Date.now() - startTime;
+
+    console.log('Output title:', result.title);
+    console.log('Output summary:', result.summary);
+    console.log(`Translation took ${elapsed}ms`);
+
+    res.json({
+      status: 'success',
+      input: { title, summary, lang },
+      output: result,
+      elapsed_ms: elapsed,
+      same_as_input: result.title === title
+    });
+  } catch (error) {
+    console.error('DEBUG translate error:', error);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/debug/translations
+ * Check cached translations in DB
+ */
+app.get('/api/debug/translations', async (req, res) => {
+  try {
+    const { lang = 'sv', limit = 10 } = req.query;
+
+    const translations = await db.select({
+      eventId: eventTranslations.eventId,
+      language: eventTranslations.language,
+      title: eventTranslations.title,
+      summary: eventTranslations.summary,
+      createdAt: eventTranslations.createdAt
+    })
+    .from(eventTranslations)
+    .where(eq(eventTranslations.language, lang))
+    .limit(parseInt(limit));
+
+    res.json({
+      status: 'success',
+      count: translations.length,
+      translations
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+/**
  * Helper function to paginate results
  */
 const paginate = (articles, limit = 20, offset = 0) => {
