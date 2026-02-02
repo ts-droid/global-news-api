@@ -192,10 +192,10 @@ app.get('/api/news', async (req, res) => {
     const pageArticles = allArticles.slice(safeOffset, safeOffset + safeLimit);
     const total = allArticles.length;
 
-    // Helper function to translate with timeout
-    const translateWithTimeout = async (title, summary, targetLang, timeoutMs = 5000) => {
+    // Helper function to translate with timeout (now includes category for style overlays)
+    const translateWithTimeout = async (title, summary, targetLang, articleCategory, timeoutMs = 5000) => {
       return Promise.race([
-        translateArticle(title, summary, targetLang),
+        translateArticle(title, summary, targetLang, articleCategory),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Translation timeout')), timeoutMs))
       ]);
     };
@@ -216,7 +216,8 @@ app.get('/api/news', async (req, res) => {
         // Only translate if language is not English
         if (lang !== 'en') {
           try {
-            const translated = await translateWithTimeout(a.title, a.summarySv || a.description, lang);
+            // Pass category to get category-specific translation instructions
+            const translated = await translateWithTimeout(a.title, a.summarySv || a.description, lang, a.category);
             titleTranslated = translated.title;
             summaryTranslated = translated.summary;
             isTranslated = true;
@@ -440,12 +441,12 @@ app.get('/api/events', async (req, res) => {
       }
     };
 
-    // Translate with timeout and save to DB
-    const translateWithTimeout = async (title, summary, targetLang, eventId, timeoutMs = 15000) => {
+    // Translate with timeout and save to DB (now includes category for style overlays)
+    const translateWithTimeout = async (title, summary, targetLang, eventId, eventCategory, timeoutMs = 15000) => {
       const startTime = Date.now();
       try {
         const result = await Promise.race([
-          translateArticle(title, summary, targetLang),
+          translateArticle(title, summary, targetLang, eventCategory),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Translation timeout')), timeoutMs))
         ]);
         console.log(`✓ Translation completed in ${Date.now() - startTime}ms`);
@@ -498,7 +499,8 @@ app.get('/api/events', async (req, res) => {
         } else if (index < 3) {
           // Translate first 3 events synchronously for immediate display
           try {
-            const translated = await translateWithTimeout(e.title, e.summary, lang, e.id, 15000);
+            // Pass category to get category-specific translation instructions
+            const translated = await translateWithTimeout(e.title, e.summary, lang, e.id, e.category, 15000);
             titleTranslated = translated.title;
             summaryTranslated = translated.summary;
             isTranslated = true;
@@ -507,7 +509,7 @@ app.get('/api/events', async (req, res) => {
           }
         } else {
           // Queue background translation for remaining events (saves to DB)
-          translateWithTimeout(e.title, e.summary, lang, e.id, 15000)
+          translateWithTimeout(e.title, e.summary, lang, e.id, e.category, 15000)
             .then(() => console.log(`Background translation done for ${e.id}`))
             .catch(() => {}); // Silently ignore failures
         }

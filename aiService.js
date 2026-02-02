@@ -160,8 +160,9 @@ async function summarizeAndCategorize(title, content, sourceCategory) {
 /**
  * STEP 2: Translate article to target language
  * Called when iOS app requests articles with a specific language
+ * Now supports category-specific translation instructions from database
  */
-async function translateArticle(title, summary, targetLanguage = 'sv') {
+async function translateArticle(title, summary, targetLanguage = 'sv', category = null) {
   if (!apiConfig.deepseek.apiKey || apiConfig.deepseek.apiKey === "no-key") {
     console.warn("⚠️ AI API Key not configured - skipping translation");
     return { title, summary };
@@ -181,6 +182,31 @@ async function translateArticle(title, summary, targetLanguage = 'sv') {
 
   const langName = languageNames[targetLanguage] || 'Swedish';
 
+  // Fetch category-specific translation instructions from database
+  let categoryInstructions = '';
+  if (category) {
+    try {
+      const { db } = require('./db');
+      const { aiStyleOverlays } = require('./db/schema');
+      const { eq, and } = require('drizzle-orm');
+
+      const [overlay] = await db.select()
+        .from(aiStyleOverlays)
+        .where(and(
+          eq(aiStyleOverlays.categoryCode, category),
+          eq(aiStyleOverlays.language, targetLanguage),
+          eq(aiStyleOverlays.isActive, true)
+        ))
+        .limit(1);
+
+      if (overlay?.stylePrompt) {
+        categoryInstructions = `\n\nCATEGORY-SPECIFIC INSTRUCTIONS FOR ${category.toUpperCase()}:\n${overlay.stylePrompt}`;
+      }
+    } catch (err) {
+      console.warn('Could not fetch style overlay:', err.message);
+    }
+  }
+
   try {
     const systemPrompt = `You are a professional news translator. Translate the following news headline and summary to ${langName}.
 
@@ -192,7 +218,7 @@ CRITICAL RULES:
 5. The summary should tell WHAT HAPPENED, not describe what the article is about
 
 BAD (meta-description): "Artikeln ger råd om hur man undviker avgifter..."
-GOOD (direct news): "Resenärer kan undvika extra avgifter genom att..."
+GOOD (direct news): "Resenärer kan undvika extra avgifter genom att..."${categoryInstructions}
 
 ALWAYS respond in this JSON format (nothing else):
 {

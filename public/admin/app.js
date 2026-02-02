@@ -331,17 +331,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const langName = languageNames[selectedLanguage];
 
         return `
-            <h2>Inställningar för ${categoryNames[selectedCategory]}</h2>
-            <p class="editor-subtitle">Tillägg till basen för översättning till ${langName}</p>
+            <h2>Översättning: ${categoryNames[selectedCategory]}</h2>
+            <p class="editor-subtitle">Kategori-specifika instruktioner för översättning till ${langName}</p>
 
             <form id="promptForm">
                 <div class="input-group">
-                    <label>Style Prompt (${langName})</label>
+                    <label>Översättningsinstruktioner (${langName})</label>
                     <textarea id="stylePromptInput" rows="10"
-                        placeholder="Skriv instruktioner för hur AI:n ska skriva nyheter inom ${categoryNames[selectedCategory]}...">${overlay?.stylePrompt || ''}</textarea>
+                        placeholder="T.ex: Använd formellt språk. Förklara facktermer. Inkludera geografisk kontext...">${overlay?.stylePrompt || ''}</textarea>
                     <p class="input-help">
-                        Detta tillägg läggs till basens instruktioner och styr skrivstilen för ${categoryNames[selectedCategory].toLowerCase()}-artiklar.
-                        ${selectedLanguage !== 'sv' ? `<br><strong>Tips:</strong> Skriv på ${langName.toLowerCase()} för bästa resultat.` : ''}
+                        <strong>OBS:</strong> Grunddata finns på engelska i databasen. Dessa instruktioner styr hur AI:n översätter
+                        ${categoryNames[selectedCategory].toLowerCase()}-nyheter till ${langName.toLowerCase()}.
+                        <br>Exempel: ton, terminologi, hur mycket kontext som ska läggas till.
                     </p>
                 </div>
 
