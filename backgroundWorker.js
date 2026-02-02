@@ -442,10 +442,29 @@ async function refreshNews() {
       // Process new articles with event matching
       const processedArticles = await processArticlesBatch(newArticles, sources);
 
-      // Batch insert into database
+      // Insert articles one by one to handle foreign key errors gracefully
       if (processedArticles.length > 0) {
-        await db.insert(articles).values(processedArticles);
-        console.log(`✓ Stored ${processedArticles.length} articles in database.`);
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const article of processedArticles) {
+          try {
+            await db.insert(articles).values(article);
+            successCount++;
+          } catch (err) {
+            failCount++;
+            // Log but don't fail the whole batch
+            if (err.message?.includes('foreign key')) {
+              console.warn(`⚠️ Skipped article (invalid event_id): ${article.title?.substring(0, 40)}...`);
+            } else if (err.message?.includes('duplicate')) {
+              // Duplicate - silently skip
+            } else {
+              console.error(`❌ Failed to insert article: ${err.message}`);
+            }
+          }
+        }
+
+        console.log(`✓ Stored ${successCount} articles in database${failCount > 0 ? ` (${failCount} skipped)` : ''}.`);
       }
     }
 
